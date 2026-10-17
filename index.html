@@ -638,6 +638,8 @@ body.viewonly .list-head{cursor:default}body.viewonly .list.collapsed .list-head
 .vp-b{flex:none;width:26px;height:26px;border-radius:7px;display:grid;place-items:center;color:inherit}.vp-b svg{width:16px;height:16px}.vp-b:hover{background:rgba(127,138,155,.25)}
 .vp-t{flex:none;min-width:2.8em;text-align:center;color:var(--ink2)}
 .vp-seek{flex:1;min-width:0;height:16px;margin:0;-webkit-appearance:none;appearance:none;background:transparent;cursor:pointer;--p:0%}
+.vp-vol{flex:none;width:56px}
+@container (max-width:260px){.vp-vol{width:40px}}
 .vp-seek:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 .vp-seek::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:linear-gradient(to right,var(--accent) var(--p),var(--s3) var(--p))}
 .vp-seek::-moz-range-track{height:4px;border-radius:2px;background:linear-gradient(to right,var(--accent) var(--p),var(--s3) var(--p))}
@@ -1808,7 +1810,7 @@ const normCode=s=>String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
 const mp={peer:null,role:null,code:'',boardId:null,conns:{},peers:{},status:'off',err:'',sent:new Set(),last:'',timer:null,rt:null,applying:false,joinTimer:null};
 /* starred and view are personal: never sent to, or taken from, other people */
 const ser=b=>{const {starred,view,...r}=b;return JSON.stringify(r,(k,v)=>k==='me'||k==='guest'?undefined:v)};
-const mpMe=()=>({v:!!(mp&&mp.voice),b:ui.boardId||null,pid:PID,name:S.settings.name,color:S.settings.color||MCOL[0],img:S.settings.avatar?res(S.settings.avatar):null});
+const mpMe=()=>({v:!!(mp&&mp.voice),mu:!!(mp&&mp.voice&&mp.voice.muted),de:!!(mp&&mp.voice&&mp.voice.deafened),b:ui.boardId||null,pid:PID,name:S.settings.name,color:S.settings.color||MCOL[0],img:S.settings.avatar?res(S.settings.avatar):null});
 const curEls={};
 function loadPeer(){if(window.Peer)return Promise.resolve();
  const urls=['https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js','https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js'];
@@ -1860,7 +1862,7 @@ function hostGate(c,m){const hb=S.boards[mp.boardId],bd=m&&m.board;if(!hb||!bd||
 function mpOnMsg(c,m){if(!m||!m.t)return;if(mp.role==='host'&&mp.conns[c.peer]!==c)return;const from=m.from;
  if(m.t==='kick'){if(mp.role==='join'){const kid=mp.boardId;if(kid){mp.left[kid]=true;if(S.settings.joined)delete S.settings.joined[kid];save()}mpStop(true);toast('The host removed you from the session. You keep a local copy of the board.')}return}
  if(m.t==='hello'&&mp.role==='host'&&m.pid&&mp.banned.has(m.pid)){try{c.send({t:'kick',from:mp.peer.id})}catch(e){}delete mp.conns[c.peer];setTimeout(()=>{try{c.close()}catch(e){}},400);return}
- if(m.t==='hello'){const isNew=!(mp.peers[from]&&mp.peers[from].hello);mpEvictStale(m,from);mp.peers[from]=Object.assign(mp.peers[from]||{},{pid:m.pid,name:m.name,color:m.color,img:m.img,voice:!!m.v,b:m.b||null,seen:Date.now(),hello:true});if(mp.role==='host')hostUpsertMember(m);if(isNew&&mp.role==='host')sendInitial(c);if(isNew&&mp.status==='live'){chatSys(m.name+' joined');if(mp.role==='host'||Date.now()-(mp.liveAt||0)>3000)joinNotice(m,'joined the board');if(mp.voice)voiceCall(from)}if(mp.role==='host')mpRelay(m,c.peer);mpUpdate();chatRefresh();return}
+ if(m.t==='hello'){const isNew=!(mp.peers[from]&&mp.peers[from].hello);mpEvictStale(m,from);mp.peers[from]=Object.assign(mp.peers[from]||{},{pid:m.pid,name:m.name,color:m.color,img:m.img,voice:!!m.v,muted:!!m.v&&!!m.mu,deaf:!!m.v&&!!m.de,b:m.b||null,seen:Date.now(),hello:true});if(mp.role==='host')hostUpsertMember(m);if(isNew&&mp.role==='host')sendInitial(c);if(isNew&&mp.status==='live'){chatSys(m.name+' joined');if(mp.role==='host'||Date.now()-(mp.liveAt||0)>3000)joinNotice(m,'joined the board');if(mp.voice)voiceCall(from)}if(mp.role==='host')mpRelay(m,c.peer);mpUpdate();chatRefresh();return}
  if(m.t==='drag'){if(mp.role==='host'&&!peerEdits(c))return;const p=mp.peers[from];if(p){p.drag=m.on&&/^[cl]$/.test(m.k)&&/^[\w-]{1,60}$/.test(String(m.id))?{k:m.k,id:String(m.id),ox:Math.max(0,Math.min(2000,+m.ox||0)),oy:Math.max(0,Math.min(4000,+m.oy||0))}:null;paintCursors()}if(mp.role==='host')mpRelay(m,c.peer);return}
  if(m.t==='cur'&&mp.role==='host'&&!peerEdits(c))return;
  if(m.t==='cur'){const p=mp.peers[from]||(mp.peers[from]={name:'Guest',color:MCOL[7]});const ob=p.b;p.x=m.x;p.y=m.y;p.a=curAnchorClean(m.a);p.v=/^(board|calendar|table)$/.test(m.v)?m.v:null;p.b=m.b;p.card=m.card;p.seen=Date.now();if(mp.role==='host')mpRelay(m,c.peer);paintCursors();if(ob!==undefined&&ob!==m.b)peerMoved(p,ob,m.b);return}
@@ -1871,10 +1873,10 @@ function mpOnMsg(c,m){if(!m||!m.t)return;if(mp.role==='host'&&mp.conns[c.peer]!=
  if(m.t==='chathist'){(m.msgs||[]).forEach(x=>chatAdd(x&&x.file?{...x,file:{...x.file,hist:true}}:x,true));return}
  if(m.t==='fx'){if(mp.role==='host')m.from=c.peer;if(fxRecv(m)&&mp.role==='host')mpRelay(m,c.peer);return}
  if(m.t==='fchunk'||m.t==='fcancel'){if(mp.role==='host'&&!peerEdits(c))return;if(mp.role==='host')m.from=c.peer;if(fileIncoming(m)&&mp.role==='host')mpRelay(m,c.peer);return}
- if(m.t==='voice'){const p=mp.peers[from];if(p){const was=!!p.voice;p.voice=!!m.on;if(was!==p.voice){chatSys(p.name+(p.voice?' joined voice':' left voice'));if(mp.voice)(p.voice?vcJoinSound:vcLeaveSound)();if(!p.voice)voiceDrop(from)}}if(mp.role==='host')mpRelay(m,c.peer);mpUpdate();chatRefresh();return}
+ if(m.t==='voice'){const p=mp.peers[from];if(p){const was=!!p.voice;p.voice=!!m.on;p.muted=p.voice&&!!m.m;p.deaf=p.voice&&!!m.d;if(was!==p.voice){chatSys(p.name+(p.voice?' joined voice':' left voice'));if(mp.voice)(p.voice?vcJoinSound:vcLeaveSound)();if(!p.voice)voiceDrop(from)}}if(mp.role==='host')mpRelay(m,c.peer);mpUpdate();chatRefresh();return}
  if(m.t==='gone'){const had=mp.peers[m.id];delete mp.peers[m.id];voiceDrop(m.id);delete mp.typing[m.id];typingRender();if(had&&!m.q){chatSys(had.name+' left');leaveNotice(had,'left the board')}mpUpdate();chatRefresh()}}
 function mpAdmit(c){mp.conns[c.peer]=c;mpSendTo(c,Object.assign({t:'hello'},mpMe()));
- for(const id in mp.peers){const p=mp.peers[id];try{c.send({t:'hello',from:id,pid:p.pid,v:!!p.voice,b:p.b||null,name:p.name,color:p.color,img:p.img})}catch(e){}}}
+ for(const id in mp.peers){const p=mp.peers[id];try{c.send({t:'hello',from:id,pid:p.pid,v:!!p.voice,mu:!!p.muted,de:!!p.deaf,b:p.b||null,name:p.name,color:p.color,img:p.img})}catch(e){}}}
 /* a "probe" is a peek from someone who is not joining: who is in the board right now? It never becomes a peer. */
 function answerProbe(c,m){if(m&&m.pid&&mp.banned.has(m.pid)){setTimeout(()=>{try{c.close()}catch(e){}},200);return}
  const here=Object.keys(mp.peers).filter(id=>mp.peers[id].b===mp.boardId).map(id=>{const p=mp.peers[id];return{name:p.name||'Guest',color:p.color,img:p.img||null}});
@@ -1923,7 +1925,7 @@ document.addEventListener('input',e=>{if(e.target.id==='join-code')e.target.valu
 function roleBtn(p){const b=S.boards[mp.boardId];if(!b||!p.pid)return'';if(b.access.everyone)return'<span class="role-badge ed" style="margin-left:auto">Editor</span>';const ed=canPeer(b,p.pid);
  return `<button class="btn sm${ed?' primary':''}" style="margin-left:auto" data-act="peer-role" data-pid="${esc(p.pid)}" data-role="${ed?'viewer':'editor'}" title="${ed?'Click to make view only':'Click to let them edit'}">${ed?'Editor':'Viewer'}</button>`}
 function liveContent(){const b=B(),W=310;
- const people=()=>`<div class="fl">In this session</div>`+[mpMe(),...Object.keys(mp.peers).map(id=>({...mp.peers[id],id}))].map((p,i)=>`<div class="mrow" style="cursor:default">${avatar({name:p.name,color:p.color,img:p.img})}<span>${esc(p.name)}${i===0?' (you)':(mp.role==='join'&&p.id==='cs-'+mp.code?' (host)':'')}</span>${(i===0?mp.voice:p.voice)?`<span class="vi" title="In voice" style="margin-left:6px;color:#38d98a;display:inline-flex">${ic('activity',13)}</span>`:''}${mp.role==='host'&&p.id?`${roleBtn(p)}<button class="btn sm ghost danger" style="margin-left:4px" data-act="kick" data-id="${p.id}">Kick</button>`:''}</div>`).join('');
+ const people=()=>`<div class="fl">In this session</div>`+[mpMe(),...Object.keys(mp.peers).map(id=>({...mp.peers[id],id}))].map((p,i)=>`<div class="mrow" style="cursor:default">${avatar({name:p.name,color:p.color,img:p.img})}<span>${esc(p.name)}${i===0?' (you)':(mp.role==='join'&&p.id==='cs-'+mp.code?' (host)':'')}</span>${(()=>{const me0=i===0,vv=me0?mp.voice:null;return `<span style="margin-left:6px;display:inline-flex;${(me0?vv&&(vv.deafened||vv.muted):(p.voice&&(p.deaf||p.muted)))?'':'color:#38d98a'}">${voiceBadge(me0?!!vv:p.voice,me0?!!(vv&&vv.muted):p.muted,me0?!!(vv&&vv.deafened):p.deaf,13)}</span>`})()}${mp.role==='host'&&p.id?`${roleBtn(p)}<button class="btn sm ghost danger" style="margin-left:4px" data-act="kick" data-id="${p.id}">Kick</button>`:''}</div>`).join('');
  if(mp.status==='connecting')return{title:'Live session',w:W,body:`<p class="hint">Connecting…</p><button class="btn block" style="margin-top:10px;justify-content:center" data-act="mp-stop">Cancel</button>`};
  if(mp.status==='live'){const host=mp.role==='host',bd=S.boards[mp.boardId];
   return{title:'Live session',w:W,body:`<div class="fl" style="margin-top:0">${host?(mp.perma?'Your permanent code':'Share this code'):'Session code'}</div><div class="code">${esc(mp.code)}</div><button class="btn block" data-act="mp-copy" style="justify-content:center;margin:8px 0 6px">${ic('copy')} Copy code</button><button class="btn block" data-act="mp-copy-link" style="justify-content:center;margin:0 0 8px">${ic('link')} Copy join link</button>
@@ -2099,11 +2101,16 @@ function chatPerm(){const ro=mp.status==='live'&&!chatCan();chatEl.classList.tog
 function chatSend(){if(!chatCan()){chatShake();return}const i=$('#chat-input'),t=emoFill(i.value.trim()),img=chatPending,pf=chatFile;if((!t&&!img&&!pf)||mp.status!=='live'){if(mp.status==='live')chatShake();return}i.value='';lastTypeSent=0;acClose();chatPending=null;chatFile=null;chatPrev();const re=chatReplyTo;chatReplyTo=null;chatReplyRender();
  if(pf){fileUpload(pf,t,cemoUsed(t),re);chatSendFx();return}
  const emo=cemoUsed(t),m={id:uid('m'),name:S.settings.name,text:t,ts:Date.now(),from:mp.peer&&mp.peer.id,img,emo,re};chatAdd(m,true);mpSend({t:'chat',id:m.id,name:m.name,text:m.text,ts:m.ts,img,emo,re});chatSendFx()}
+/* voice status icon: green = in voice, red mic = muted, red headphones = deafened */
+function voiceBadge(on,muted,deaf,size){if(!on)return '';
+ if(deaf)return `<span class="vi vi-off" title="Deafened" style="color:var(--danger)">${ic('headphonesOff',size)}</span>`;
+ if(muted)return `<span class="vi vi-off" title="Muted" style="color:var(--danger)">${ic('micOff',size)}</span>`;
+ return `<span class="vi" title="In voice">${ic('activity',size)}</span>`}
 function chatRefresh(){const vc=$('#chat-voice'),pp=$('#chat-people');if(!vc||!pp)return;const v=mp.voice,s=S.settings,nv=Object.values(mp.peers).filter(x=>x.voice).length;
  vc.innerHTML=!v?`<button class="btn sm vbtn" data-act="voice-start" title="Join voice" aria-label="Join voice">${ic('phone',16)}</button><span class="hint">${nv?nv+' in voice. Join to hear them.':'Nobody is in voice.'}</span>`
  :`<button class="btn sm danger vbtn" data-act="voice-stop" title="Leave voice" aria-label="Leave voice">${ic('phoneOff',16)}</button><button class="btn sm vbtn" data-act="voice-mute" aria-pressed="${v.muted||v.deafened?'true':'false'}" title="${v.muted||v.deafened?'Unmute':'Mute'}" aria-label="${v.muted||v.deafened?'Unmute':'Mute'}">${ic(v.muted||v.deafened?'micOff':'mic',16)}</button><button class="btn sm vbtn" data-act="voice-deafen" aria-pressed="${v.deafened?'true':'false'}" title="${v.deafened?'Undeafen':'Deafen'}" aria-label="${v.deafened?'Undeafen':'Deafen'}">${ic(v.deafened?'headphonesOff':'headphones',16)}</button><button class="btn sm${s.ptt?' primary':''}" data-act="ptt-toggle" aria-pressed="${s.ptt?'true':'false'}" title="Hold a key to talk instead of an open mic">${ic('walkie',14)} Push to talk</button>${s.ptt?`<button class="btn sm" data-act="ptt-rebind" title="Click, then press the key you want">${rebind?'Press a key…':'Key <kbd class="kbd">'+esc(keyName(s.pttKey||'KeyT'))+'</kbd>'}</button>`:''}<span class="hint">${v.deafened?'Deafened (you cannot hear anyone)':v.muted?'Muted':s.ptt?(v.talking?'Talking':'Hold the key to talk'):'Mic is open'}</span>`;
- const me=mpMe(),ppl=[{id:'me',name:me.name+' (you)',color:me.color,img:me.img,mic:!!v},...Object.keys(mp.peers).map(id=>({id,...mp.peers[id],mic:!!mp.peers[id].voice}))];
- pp.innerHTML=ppl.map(p=>`<span class="cp">${avatar({name:p.name,color:p.color,img:p.img},levels[p.id]&&levels[p.id].speaking?'live':'')}<span>${esc(p.name)}</span>${p.mic?`<span class="vi" title="In voice">${ic('activity',12)}</span>`:''}${mp.role==='host'&&p.id!=='me'?`<button class="cp-x" data-act="kick" data-id="${p.id}" title="Remove ${esc(p.name)}" aria-label="Remove ${esc(p.name)}">${ic('x',10)}</button>`:''}</span>`).join('')}
+ const me=mpMe(),ppl=[{id:'me',name:me.name+' (you)',color:me.color,img:me.img,mic:!!v,muted:!!(v&&v.muted),deaf:!!(v&&v.deafened)},...Object.keys(mp.peers).map(id=>({id,...mp.peers[id],mic:!!mp.peers[id].voice}))];
+ pp.innerHTML=ppl.map(p=>`<span class="cp">${avatar({name:p.name,color:p.color,img:p.img},levels[p.id]&&levels[p.id].speaking?'live':'')}<span>${esc(p.name)}</span>${voiceBadge(p.mic,p.muted,p.deaf,12)}${mp.role==='host'&&p.id!=='me'?`<button class="cp-x" data-act="kick" data-id="${p.id}" title="Remove ${esc(p.name)}" aria-label="Remove ${esc(p.name)}">${ic('x',10)}</button>`:''}</span>`).join('')}
 A['chat-min']=()=>{ui.chatMin=!ui.chatMin;chatApplyMin();if(!ui.chatMin){mp.unread=0;const l=$('#chat-log');if(l)l.scrollTop=l.scrollHeight;setTimeout(()=>{const i=$('#chat-input');if(i)i.focus()},0)}chatBtnUpdate()};
 chatEl.addEventListener('click',e=>{if(ui.chatMin&&e.target.closest('header')&&!e.target.closest('button'))A['chat-min']()});
 A['toggle-chat']=()=>{if(mp.status!=='live')return;if(ui.chatOpen&&ui.chatMin){A['chat-min']();return}ui.chatOpen=!ui.chatOpen;chatShow(ui.chatOpen);if(ui.chatOpen){mp.unread=0;chatRefresh();const l=$('#chat-log');l.scrollTop=l.scrollHeight;setTimeout(()=>$('#chat-input').focus(),0)}chatBtnUpdate()};
@@ -2148,9 +2155,10 @@ A['voice-start']=()=>voiceStart();
 A['voice-stop']=()=>voiceStop(false);
 A['voice-mute']=()=>{const v=mp.voice;if(!v)return;
  if(v.deafened){/* unmuting while deafened also undeafens, like most voice apps */v.muted=false;setDeaf(false);return}
- v.muted=!v.muted;muteSound(v.muted);applyMic()};
-function setDeaf(on){const v=mp.voice;if(!v)return;v.deafened=on;Object.values(audioEls).forEach(a=>{a.muted=on});deafenSound(on);applyMic()}
+ v.muted=!v.muted;muteSound(v.muted);applyMic();voiceState()};
+function setDeaf(on){const v=mp.voice;if(!v)return;v.deafened=on;Object.values(audioEls).forEach(a=>{a.muted=on});deafenSound(on);applyMic();voiceState()}
 A['voice-deafen']=()=>{if(mp.voice)setDeaf(!mp.voice.deafened)};
+const voiceState=()=>{const v=mp.voice;if(v)mpSend({t:'voice',on:true,m:!!v.muted,d:!!v.deafened})};
 A['ptt-toggle']=()=>{S.settings.ptt=!S.settings.ptt;save();if(mp.voice)mp.voice.talking=false;applyMic()};
 A['ptt-rebind']=()=>{rebind=true;chatRefresh()};
 document.addEventListener('keydown',e=>{
@@ -2221,6 +2229,7 @@ function fileMeta(m,local){const f=m&&m.file;if(!f||typeof f!=='object')return n
  return{name,size,type,n,state:f.hist?'gone':own?(f.state==='up'?'up':'done'):'recv',pct:own&&f.state==='up'?0:0,got:0,buf:own?null:[],bufB:0,blobs:own?null:[],last:Date.now(),url:null,src:own?(f.src||null):null}}
 function fileFree(m){if(m&&m.file){try{const vv=document.querySelector(`.cfile[data-fid="${CSS.escape(m.id)}"] video`);if(vv)vv.pause()}catch(e){}if(m.file.url){try{URL.revokeObjectURL(m.file.url)}catch(e){}}m.file.url=null;m.file.buf=null;m.file.blobs=null;m.file.src=null}}
 /* custom video player: uses the theme colors, shrinks to fit the chat */
+try{if(navigator.mediaSession)['enterpictureinpicture','enterpictureinpicture'].forEach(a=>{try{navigator.mediaSession.setActionHandler(a,null)}catch(e){}})}catch(e){}
 const VP_I={
  play:'<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13L18.5 12z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
  pause:'<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>',
@@ -2229,12 +2238,13 @@ const VP_I={
  fs:'<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'};
 const vpTime=t=>{t=isFinite(t)&&t>0?Math.floor(t):0;const h=Math.floor(t/3600),m=Math.floor(t%3600/60),s=t%60;return(h?h+':'+String(m).padStart(2,'0'):m)+':'+String(s).padStart(2,'0')};
 function vpBuild(fc,m,near,log){const f=m.file;fc.className='cfile done cvidbox';fc.dataset.vid=f.url;
- fc.innerHTML=`<div class="vp" tabindex="0" role="group" aria-label="Video: ${esc(f.name)}"><video class="cvid" src="${f.url}" preload="metadata" playsinline></video><button class="vp-big" data-vp="toggle" aria-label="Play video">${VP_I.play}</button><div class="vp-bar"><button class="vp-b" data-vp="toggle" aria-label="Play">${VP_I.play}</button><span class="vp-t vp-c">0:00</span><input class="vp-seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Seek"><span class="vp-t vp-d">0:00</span><button class="vp-b" data-vp="mute" aria-label="Mute">${VP_I.vol}</button><button class="vp-b" data-vp="fs" aria-label="Fullscreen">${VP_I.fs}</button></div></div><div class="cvm"><span title="${esc(f.name)}">${esc(f.name)} · ${esc(fmtSize(f.size))}</span><a class="icon-btn" href="${f.url}" download="${esc(f.name)}" title="Download" aria-label="Download ${esc(f.name)}">${ic('download',16)}</a></div>`;
- const vp=fc.querySelector('.vp'),v=vp.querySelector('video'),seek=vp.querySelector('.vp-seek'),cur=vp.querySelector('.vp-c'),dur=vp.querySelector('.vp-d'),mu=vp.querySelector('[data-vp=mute]');
+ fc.innerHTML=`<div class="vp" tabindex="0" role="group" aria-label="Video: ${esc(f.name)}"><video class="cvid" src="${f.url}" preload="metadata" playsinline disablePictureInPicture disableRemotePlayback></video><button class="vp-big" data-vp="toggle" aria-label="Play video">${VP_I.play}</button><div class="vp-bar"><button class="vp-b" data-vp="toggle" aria-label="Play">${VP_I.play}</button><span class="vp-t vp-c">0:00</span><input class="vp-seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Seek"><span class="vp-t vp-d">0:00</span><button class="vp-b" data-vp="mute" aria-label="Mute">${VP_I.vol}</button><input class="vp-seek vp-vol" type="range" min="0" max="100" value="100" step="1" aria-label="Volume"><button class="vp-b" data-vp="fs" aria-label="Fullscreen">${VP_I.fs}</button></div></div><div class="cvm"><span title="${esc(f.name)}">${esc(f.name)} · ${esc(fmtSize(f.size))}</span><a class="icon-btn" href="${f.url}" download="${esc(f.name)}" title="Download" aria-label="Download ${esc(f.name)}">${ic('download',16)}</a></div>`;
+ const vp=fc.querySelector('.vp'),v=vp.querySelector('video'),seek=vp.querySelector('.vp-seek'),cur=vp.querySelector('.vp-c'),dur=vp.querySelector('.vp-d'),mu=vp.querySelector('[data-vp=mute]'),vol=vp.querySelector('.vp-vol');
+ try{v.disablePictureInPicture=true;v.volume=S.settings.vidVol!=null?Math.max(0,Math.min(1,+S.settings.vidVol)):1}catch(e){}
  let hideT=0,dragging=false;
  const paint=()=>{const d=v.duration||0;seek.style.setProperty('--p',(d?v.currentTime/d*100:0)+'%');if(!dragging)seek.value=d?Math.round(v.currentTime/d*1000):0;cur.textContent=vpTime(v.currentTime);dur.textContent=vpTime(d)};
  const sync=()=>{const pl=!v.paused&&!v.ended;vp.classList.toggle('playing',pl);$$('[data-vp=toggle]',vp).forEach(b=>{b.innerHTML=pl&&!b.classList.contains('vp-big')?VP_I.pause:VP_I.play;b.setAttribute('aria-label',pl?'Pause':'Play')});
-  const off=v.muted||v.volume===0;mu.innerHTML=off?VP_I.muted:VP_I.vol;mu.setAttribute('aria-label',off?'Unmute':'Mute')};
+  const off=v.muted||v.volume===0;{const lv=off?0:Math.round(v.volume*100);vol.value=lv;vol.style.setProperty('--p',lv+'%')}mu.innerHTML=off?VP_I.muted:VP_I.vol;mu.setAttribute('aria-label',off?'Unmute':'Mute')};
  const toggle=()=>{if(v.paused||v.ended){$$('.vp video').forEach(o=>{if(o!==v)o.pause()});v.play().catch(()=>{})}else v.pause()};
  const peek=()=>{vp.classList.add('show');clearTimeout(hideT);hideT=setTimeout(()=>vp.classList.remove('show'),2500)};
  const fullscreen=()=>{const cur=document.fullscreenElement||document.webkitFullscreenElement;if(cur===vp){(document.exitFullscreen||document.webkitExitFullscreen).call(document)}
@@ -2243,8 +2253,10 @@ function vpBuild(fc,m,near,log){const f=m.file;fc.className='cfile done cvidbox'
  vp.addEventListener('pointerdown',e=>{if(e.pointerType==='touch')peek()});
  seek.addEventListener('input',()=>{dragging=true;const d=v.duration;if(d)v.currentTime=seek.value/1000*d;seek.style.setProperty('--p',seek.value/10+'%');cur.textContent=vpTime(v.currentTime)});
  seek.addEventListener('change',()=>{dragging=false;paint()});
- vp.addEventListener('keydown',e=>{const k=e.key;if(e.target===seek&&(k==='ArrowLeft'||k==='ArrowRight'))return;if(k===' '&&e.target.closest('button'))return;let used=true;
-  if(k===' '||k==='k')toggle();else if(k==='ArrowRight')v.currentTime=Math.min(v.duration||0,v.currentTime+5);else if(k==='ArrowLeft')v.currentTime=Math.max(0,v.currentTime-5);else if(k==='m')v.muted=!v.muted;else if(k==='f')fullscreen();else used=false;
+ vol.addEventListener('input',()=>{const x=vol.value/100;v.muted=x===0;v.volume=x;S.settings.vidVol=x;save()});
+ vol.style.setProperty('--p',vol.value+'%');
+ vp.addEventListener('keydown',e=>{const k=e.key;if((e.target===seek||e.target===vol)&&(k==='ArrowLeft'||k==='ArrowRight'))return;if(e.target===vol&&(k==='ArrowUp'||k==='ArrowDown'))return;if(k===' '&&e.target.closest('button'))return;let used=true;
+  if(k===' '||k==='k')toggle();else if(k==='ArrowRight')v.currentTime=Math.min(v.duration||0,v.currentTime+5);else if(k==='ArrowLeft')v.currentTime=Math.max(0,v.currentTime-5);else if(k==='ArrowUp'||k==='ArrowDown'){const x=Math.max(0,Math.min(1,(v.muted?0:v.volume)+(k==='ArrowUp'?.1:-.1)));v.muted=x===0;v.volume=x;S.settings.vidVol=x;save()}else if(k==='m')v.muted=!v.muted;else if(k==='f')fullscreen();else used=false;
   if(used){e.preventDefault();e.stopPropagation()}});
  ['timeupdate','durationchange'].forEach(t=>v.addEventListener(t,paint));['play','pause','ended','volumechange'].forEach(t=>v.addEventListener(t,sync));
  v.addEventListener('loadedmetadata',()=>{const w=v.videoWidth,h=v.videoHeight;if(w&&h){const avail=Math.max(160,fc.clientWidth||260),sc=Math.min(avail/w,260/h),bw=Math.max(200,Math.round(w*sc));vp.style.width=Math.min(bw,avail)+'px';vp.style.aspectRatio=w+'/'+h}paint();sync();if(near&&log)log.scrollTop=log.scrollHeight});
@@ -2711,8 +2723,13 @@ setTimeout(()=>{try{mpAutoShare()}catch(e){}},0);
    2. Add a new entry at the TOP of WHATS_NEW with that version, today's date, and a short, plain-language list of what you changed.
    3. Keep ALL older entries below it, never delete them: the popup lists them under "Older updates" so people can read past notes.
    The popup shows automatically once per user when APP_VERSION differs from the last version they have seen. */
-const APP_VERSION='52';
+const APP_VERSION='53';
 const WHATS_NEW=[
+ {v:'53',date:'2026-10-17',changes:[
+  'You can now see who is muted or deafened in voice: a red microphone means muted, red headphones mean deafened, and the green icon means their mic is on. It shows in the chat people list and the Live session list.',
+  'Videos in the chat have a volume slider (the level is remembered). Arrow Up and Down also change the volume while a video is focused.',
+  'Chat videos no longer pop out into a floating Picture-in-Picture window when you switch tabs.',
+ ]},
  {v:'52',date:'2026-10-17',changes:[
   'New people now get a random name (like \"Swift Otter\") instead of \"You\". If you still had the default name it was changed to a random one; you can rename yourself any time in the Profile menu.',
   'Other people\'s mouse cursors now follow the content when you or they scroll with the mouse wheel or trackpad, including inside card windows, the side panel, the table and the calendar.',

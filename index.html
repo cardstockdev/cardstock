@@ -14,6 +14,8 @@
 --list:#eef1f6;--card:#fff;--cardshadow:0 1px 0 rgba(22,32,46,.14),0 1px 3px rgba(22,32,46,.10);
 --chrome:#fff;--chrome-ink:#16202e;--chrome-line:#d9dfe8;--pop:#fff;color-scheme:light}
 :root[data-theme=dark]{--bg:#0d131a;--surface:#17202a;--s2:#1e2935;--s3:#293645;--ink:#e8edf3;--ink2:#aebac8;--ink3:#7d8a9b;--line:#2b3846;--accent:#6190ff;--asoft:#1c2a4a;--list:#141c25;--card:#1f2a36;--cardshadow:0 1px 0 rgba(0,0,0,.4),0 1px 3px rgba(0,0,0,.35);--chrome:#121a23;--chrome-ink:#e8edf3;--chrome-line:#26323f;--pop:#1b2531;color-scheme:dark}
+:root[data-theme=light][data-auto]{--bg:#ece9f5;--surface:#fff;--s2:#f5f3fa;--s3:#e7e3f1;--ink:#1e1a2e;--ink2:#564f6b;--ink3:#857e99;--line:#ddd8ea;--accent:#7b52e6;--asoft:#eee8ff;--list:#efecf7;--card:#fff;--cardshadow:0 1px 0 rgba(30,26,46,.14),0 1px 3px rgba(30,26,46,.10);--chrome:#fff;--chrome-ink:#1e1a2e;--chrome-line:#ddd8ea;--pop:#fff}
+:root[data-theme=dark][data-auto]{--bg:#130f1d;--surface:#1d1829;--s2:#251f34;--s3:#322a45;--ink:#ece8f5;--ink2:#b6aecb;--ink3:#8479a0;--line:#342c47;--accent:#a07bff;--asoft:#2b2150;--list:#181324;--card:#251f33;--cardshadow:0 1px 0 rgba(0,0,0,.4),0 1px 3px rgba(0,0,0,.35);--chrome:#17121f;--chrome-ink:#ece8f5;--chrome-line:#2d2540;--pop:#211b2e}
 body.on-board{--chrome:rgba(8,14,22,.55);--chrome-ink:#fff;--chrome-line:rgba(255,255,255,.14)}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
@@ -923,7 +925,7 @@ t=t.replace(/\s+/g,' ').trim();return{title:t||text.trim(),labels:[...new Set(la
 const main=$('#main');
 /* themes: [bg, surface, s2, s3, ink, ink2, ink3, line, accent, accent-soft, list, card, chrome, popover] */
 const THEMES=[
-{id:'auto',name:'Auto (system)',p:['#e9edf3','#17202a','#2f6bff']},
+{id:'auto',name:'Auto (system)',p:['#ece9f5','#1d1829','#7b52e6']},
 {id:'light',name:'Light',p:['#e9edf3','#ffffff','#2f6bff']},
 {id:'ocean',name:'Ocean',v:['#dff0f7','#ffffff','#eef8fc','#d3e8f1','#0b2a3a','#3d6174','#6f94a6','#c3dce8','#0891b2','#d5f0f7','#e6f3f9','#ffffff','#ffffff','#ffffff']},
 {id:'rose',name:'Rose',v:['#fbeaf0','#ffffff','#fdf3f6','#f6dce6','#3a1424','#7a4a5e','#a67e8f','#f0d0dc','#e11d74','#fde0ec','#fbeff3','#ffffff','#ffffff','#ffffff']},
@@ -960,7 +962,7 @@ function themeBtn(){const sel=S.settings.theme,cur=allThemes().find(x=>x.id===(s
  return `<span class="tsw" style="background:linear-gradient(135deg,${p[1]} 50%,${p[2]} 50%)"></span><span class="lab">${sel==='auto'?'Auto':esc(cur.name)}</span>${ic('chevD',14)}`}
 function render(){
  applyCustomCSS();
- document.documentElement.dataset.theme=effTheme();updateFavicon();
+ document.documentElement.dataset.theme=effTheme();{const t0=S.settings.theme;if(t0==='auto'||!allThemes().some(x=>x.id===t0))document.documentElement.dataset.auto='1';else delete document.documentElement.dataset.auto}updateFavicon();
  document.body.classList.toggle('on-board',!!(ui.boardId&&S.boards[ui.boardId]));
  document.body.classList.toggle('compact',!!S.settings.compact);
  document.body.classList.toggle('viewonly',!!(ui.boardId&&S.boards[ui.boardId]&&!canEdit()));
@@ -1528,7 +1530,7 @@ document.addEventListener('keydown',e=>{
  if(!b||ui.cardId)return;
  if(k==='f'){e.preventDefault();openPop('filter',$('[data-act="pop-filter"]'));pop.focus=true;renderPop();return}
  if(k==='q'){const me=meOf(b);ui.filter.members=ui.filter.members.length?[]:[me.id];render();return}
- if(k==='v'){const vs=['board','calendar','table'];b.view=vs[(vs.indexOf(b.view)+1)%3];ui.vfx=1;save();render();return}
+ if(k==='v'){if(e.repeat)return;/* holding the key must not keep cycling views */const vs=['board','calendar','table'];b.view=vs[(vs.indexOf(b.view)+1)%3];ui.vfx=1;save();render();return}
  if(k==='n'&&b.view==='board'){const l=b.lists.find(x=>x.id===ui.hoverList&&!x.archived)||b.lists.find(x=>!x.archived);if(l){e.preventDefault();ui.composer=l.id;ui.composerDraft='';ui.focus='#composer-ta';render()}return}
  const hc=ui.hoverCard;if(!hc||!findCard(hc))return;
  if(k==='e'||e.key==='Enter'){e.preventDefault();A['open-card']({dataset:{id:hc}});return}
@@ -2726,8 +2728,12 @@ setTimeout(()=>{try{mpAutoShare()}catch(e){}},0);
    2. Add a new entry at the TOP of WHATS_NEW with that version, today's date, and a short, plain-language list of what you changed.
    3. Keep ALL older entries below it, never delete them: the popup lists them under "Older updates" so people can read past notes.
    The popup shows automatically once per user when APP_VERSION differs from the last version they have seen. */
-const APP_VERSION='55';
+const APP_VERSION='56';
 const WHATS_NEW=[
+ {v:'56',date:'2026-10-17',changes:[
+  'Holding the V key no longer keeps switching between Board, Calendar and Table. One press switches once.',
+  'The Auto (system) theme is now purplish instead of blue, in both its light and dark versions. The Light and Dark themes are unchanged.',
+ ]},
  {v:'55',date:'2026-10-17',changes:[
   'The chat video mute button now sits next to the volume slider in the top-right corner of the video.',
  ]},

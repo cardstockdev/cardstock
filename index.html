@@ -836,7 +836,11 @@ const KEY='cardstock.v1';
 const mkCard=(title,o={})=>({id:uid('c'),title,desc:'',labels:[],members:[],working:[],due:null,done:false,cover:null,checklists:[],comments:[],attachments:[],archived:false,created:Date.now(),...o});
 const defLabels=()=>[['Urgent','red'],['Blocked','orange'],['Idea','yellow'],['Ready','green'],['Feature','blue'],['Design','purple']].map(([name,color])=>({id:uid('l'),name,color}));
 const TEMPLATES={blank:{name:'Blank',lists:[]},kanban:{name:'Kanban',lists:['To do','Doing','Done']},project:{name:'Project plan',lists:['Backlog','Planning','In progress','In review','Shipped']},weekly:{name:'Weekly planner',lists:['Monday','Tuesday','Wednesday','Thursday','Friday','Weekend']},sprint:{name:'Sprint',lists:['Sprint backlog','In development','QA','Done']},personal:{name:'Personal',lists:['Inbox','Today','This week','Someday','Done']}};
-function makeBoard(title,tpl='blank',bg){return{id:uid('b_'),title,owner:PID,access:{everyone:false,editors:[]},starred:false,bg:bg||{...DEFAULT_BG},labels:defLabels(),members:[{id:uid('m'),name:'You',color:MCOL[0],me:true,pid:PID}],
+let MY_NAME='You';
+const NAME_ADJ=['Swift','Brave','Calm','Clever','Cosmic','Cozy','Dapper','Eager','Fuzzy','Gentle','Happy','Jolly','Lucky','Mellow','Nimble','Plucky','Quiet','Sunny','Witty','Zesty','Breezy','Snappy','Sleepy','Bouncy'];
+const NAME_ANI=['Otter','Panda','Falcon','Koala','Fox','Gecko','Heron','Lynx','Moose','Newt','Owl','Puffin','Quokka','Raven','Seal','Tiger','Wombat','Yak','Badger','Beaver','Lemur','Marten','Orca','Robin'];
+const randName=()=>NAME_ADJ[Math.floor(Math.random()*NAME_ADJ.length)]+' '+NAME_ANI[Math.floor(Math.random()*NAME_ANI.length)];
+function makeBoard(title,tpl='blank',bg){return{id:uid('b_'),title,owner:PID,access:{everyone:false,editors:[]},starred:false,bg:bg||{...DEFAULT_BG},labels:defLabels(),members:[{id:uid('m'),name:MY_NAME,color:MCOL[0],me:true,pid:PID}],
 lists:(TEMPLATES[tpl]||TEMPLATES.blank).lists.map(t=>({id:uid('l'),title:t,cards:[],archived:false,collapsed:false,wip:0,color:null})),activity:[],view:'board',showLabelNames:false,created:Date.now()}}
 function fixBoard(b){b.title=b.title||'Untitled board';b.lists=b.lists||[];b.labels=b.labels||[];b.members=b.members||[];b.activity=b.activity||[];b.bg=b.bg||{...DEFAULT_BG};b.view=b.view||'board';b.members.forEach(m=>{if(m.me&&!m.pid)m.pid=PID});if(!b.access||typeof b.access!=='object')b.access={everyone:false,editors:[]};b.access.everyone=!!b.access.everyone;b.access.editors=Array.isArray(b.access.editors)?b.access.editors:[];b.emoji=(Array.isArray(b.emoji)?b.emoji:[]).filter(e=>e&&/^[a-z0-9_]{2,32}$/.test(e.name||'')&&/^asset:[a-z0-9]+$/i.test(e.img||'')).slice(0,50);if(!b.owner&&!b.guest)b.owner=PID;
 b.lists.forEach(l=>{l.id=l.id||uid('l');l.cards=l.cards||[];l.cards=l.cards.map(c=>({...mkCard(c.title||''),...c}))});return b}
@@ -845,7 +849,10 @@ function load(){try{const raw=localStorage.getItem(KEY);if(raw){const s=JSON.par
 const used=new Set([...JSON.stringify([s.boards,s.settings]).matchAll(/asset:([a-z0-9]+)/gi)].map(m=>m[1]));Object.keys(s.assets).forEach(k=>{if(!used.has(k))delete s.assets[k]});return s}}catch(e){console.warn(e)}return seed()}
 const NAME_MAX=18;
 const S=load();
-S.settings.name=String(S.settings.name||'You').trim().slice(0,NAME_MAX)||'You';
+S.settings.name=String(S.settings.name||'').trim().slice(0,NAME_MAX);
+/* nobody picked a name yet (blank or the old default \"You\"): give them a random one, and rename their own member entries that still say \"You\" */
+if(!S.settings.name||S.settings.name==='You'){S.settings.name=randName();Object.values(S.boards).forEach(b=>(b.members||[]).forEach(m=>{if((m.me||m.pid===PID)&&m.name==='You')m.name=S.settings.name}))}
+MY_NAME=S.settings.name;
 if(!S.settings.color)S.settings.color=MCOL[Math.floor(Math.random()*MCOL.length)];
 const res=src=>src&&src.startsWith('asset:')?(S.assets[src.slice(6)]||''):src;
 const addAsset=data=>{const id=uid('a');S.assets[id]=data;return 'asset:'+id};
@@ -1990,19 +1997,20 @@ function dragSend(d,on){try{if(mp.status!=='live'||S.settings.hideCursor)return;
 /* Cursors are anchored to the element under the pointer (card, list, board, card window, side menu) plus an offset inside it,
    so they land on the same thing whatever the window size. Plain window fractions are only the fallback. */
 const CUR_SEL={c:id=>`.card[data-id="${id}"],.chip[data-id="${id}"],tr[data-id="${id}"]`,l:id=>`.list[data-list="${id}"]`};
-function curAnchorClean(a){if(!a||typeof a!=='object')return null;const k=a.k,dx=+a.dx,dy=+a.dy;if(!/^[clbmdwq]$/.test(k)||!isFinite(dx)||!isFinite(dy))return null;
+function curAnchorClean(a){if(!a||typeof a!=='object')return null;const k=a.k,dx=+a.dx,dy=+a.dy;if(!/^[clbmdweq]$/.test(k)||!isFinite(dx)||!isFinite(dy))return null;
  const id=String(a.id||'');if((k==='c'||k==='l')&&!/^[\w-]{1,60}$/.test(id))return null;if(k==='q'&&!/^[tb][lr]$/.test(id))return null;return{k,id,dx:Math.max(-5e4,Math.min(5e4,dx)),dy:Math.max(-5e4,Math.min(5e4,dy))}}
 function curResolve(a){let el=null;
  if(a.k==='q')return{x:a.id[1]==='r'?innerWidth+a.dx:a.dx,y:a.id[0]==='b'?innerHeight+a.dy:a.dy};
  if(a.k==='c'||a.k==='l')el=document.querySelector(CUR_SEL[a.k](a.id));
- else if(a.k==='b')el=$('#lists');else if(a.k==='m')el=$('#modal-root .modal');else if(a.k==='d')el=$('.drawer');else if(a.k==='w')el=$('.cal-wrap,.tbl');
- if(!el)return null;const r=el.getBoundingClientRect();return{x:r.left+a.dx-(a.k==='b'?el.scrollLeft:0),y:r.top+a.dy}}
+ else if(a.k==='b')el=$('#lists');else if(a.k==='m')el=$('#modal-root .modal');else if(a.k==='d')el=$('.drawer');else if(a.k==='e')el=$('.drawer-body');else if(a.k==='w')el=$('.cal-wrap,.tbl');
+ if(!el)return null;const r=el.getBoundingClientRect();return{x:r.left+a.dx-(a.k==='b'?el.scrollLeft:0),y:r.top+a.dy-(a.k==='e'?el.scrollTop:0)}}
 function curAnchorFor(x,y){let t=document.elementFromPoint(x,y),el;
  /* fixed-size things pinned to a screen edge (chat, top bar, empty gaps): measure from the nearest window corner, not as a fraction of the window */
  const corner=br=>{const r=br||x>innerWidth/2,b=br||y>innerHeight/2;return{k:'q',id:(b?'b':'t')+(r?'r':'l'),dx:Math.round(r?x-innerWidth:x),dy:Math.round(b?y-innerHeight:y)}};
  if(!t||!t.closest)return corner();
- const mk=(k,e,id,sx)=>{const r=e.getBoundingClientRect();return{k,id:id||'',dx:Math.round(x-r.left+(sx||0)),dy:Math.round(y-r.top)}};
+ const mk=(k,e,id,sx,sy)=>{const r=e.getBoundingClientRect();return{k,id:id||'',dx:Math.round(x-r.left+(sx||0)),dy:Math.round(y-r.top+(sy||0))}};
  if(el=t.closest('.modal'))return mk('m',el);
+ if(el=t.closest('.drawer-body'))return mk('e',el,'',0,el.scrollTop);/* scrolled side panel: cursor sticks to the content */
  if(el=t.closest('.drawer'))return mk('d',el);
  if(t.closest('.chat'))return corner(true);
  if(t.closest('.overlay'))return corner();
@@ -2024,10 +2032,11 @@ document.addEventListener('pointermove',e=>{if(mp.status!=='live')return;lastPtr
 /* scrolling sideways moves the board under a still mouse: keep my cursor and everyone else's in the right place */
 let scT=0;
 window.addEventListener('resize',()=>{paintCursors();clearTimeout(scT2);scT2=setTimeout(sendCur,90)});
-main.addEventListener('scroll',e=>{if(!e.target)return;const cs=$('#cursors');if(cs){cs.classList.add('noanim');clearTimeout(scT);scT=setTimeout(()=>cs.classList.remove('noanim'),150)}
+/* any scroll anywhere (lists, card windows, side panel, table, calendar, the page itself) moves content under a still mouse */
+document.addEventListener('scroll',e=>{const t=e.target;if(t&&t.closest&&t.closest('.chat'))return;const cs=$('#cursors');if(cs){cs.classList.add('noanim');clearTimeout(scT);scT=setTimeout(()=>cs.classList.remove('noanim'),150)}
  paintCursors();const n=Date.now();if(n-curT>=50){curT=n;sendCur()}clearTimeout(scT2);scT2=setTimeout(sendCur,90)},true);
 /* mouse still, board moved by wheel/trackpad: still know where the pointer is */
-let scT2=0;['wheel','pointerdown'].forEach(t=>document.addEventListener(t,e=>{if(mp.status==='live'&&e.clientX!=null)lastPtr={x:e.clientX,y:e.clientY}},{passive:true,capture:true}));
+let scT2=0;['wheel','pointerdown'].forEach(t=>document.addEventListener(t,e=>{if(mp.status==='live'&&e.clientX!=null){lastPtr={x:e.clientX,y:e.clientY};if(t==='wheel'){clearTimeout(scT2);scT2=setTimeout(()=>{paintCursors();sendCur()},140)}}},{passive:true,capture:true}));
 document.documentElement.addEventListener('mouseleave',()=>{if(mp.status==='live')lastPtr=null;mpSend({t:'cur',x:null,y:null,cx:null,b:ui.boardId})});
 window.addEventListener('beforeunload',()=>{try{mp.peer&&mp.peer.destroy()}catch(e){}});
 
@@ -2702,8 +2711,12 @@ setTimeout(()=>{try{mpAutoShare()}catch(e){}},0);
    2. Add a new entry at the TOP of WHATS_NEW with that version, today's date, and a short, plain-language list of what you changed.
    3. Keep ALL older entries below it, never delete them: the popup lists them under "Older updates" so people can read past notes.
    The popup shows automatically once per user when APP_VERSION differs from the last version they have seen. */
-const APP_VERSION='51';
+const APP_VERSION='52';
 const WHATS_NEW=[
+ {v:'52',date:'2026-10-17',changes:[
+  'New people now get a random name (like \"Swift Otter\") instead of \"You\". If you still had the default name it was changed to a random one; you can rename yourself any time in the Profile menu.',
+  'Other people\'s mouse cursors now follow the content when you or they scroll with the mouse wheel or trackpad, including inside card windows, the side panel, the table and the calendar.',
+ ]},
  {v:'51',date:'2026-10-17',changes:[
   'New \"Copy join link\" button under the session code. Anyone who opens the link (cardstockdev.github.io/cardstock/?join=CODE) joins that live session automatically.',
  ]},

@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Cardstock</title>
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Cardstock">
+<meta property="og:title" content="Cardstock">
+<meta property="og:url" content="https://cardstockdev.github.io/cardstock/">
+<meta property="og:image" content="https://raw.githubusercontent.com/cardstockdev/cardstock/refs/heads/main/Cardstock%20Banner.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Cardstock">
+<meta name="twitter:image" content="https://raw.githubusercontent.com/cardstockdev/cardstock/refs/heads/main/Cardstock%20Banner.png">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%232f6bff'/%3E%3Crect x='4.5' y='5' width='4' height='14' rx='1.3' fill='white'/%3E%3Crect x='10' y='5' width='4' height='8.5' rx='1.3' fill='white' opacity='.85'/%3E%3Crect x='15.5' y='5' width='4' height='11' rx='1.3' fill='white' opacity='.7'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -1340,7 +1348,13 @@ const trelloTime=(iso,id)=>{const t=iso?Date.parse(iso):NaN;if(!isNaN(t))return 
 /* images: first try to download and store the picture inside Cardstock (works when the host allows it);
    otherwise, if the browser can show it, link to it; otherwise skip it so nothing shows up broken */
 const imgLoads=(url,ms=7000)=>new Promise(ok=>{const i=new Image(),to=setTimeout(()=>{i.onload=i.onerror=null;ok(false)},ms);i.onload=()=>{clearTimeout(to);ok(true)};i.onerror=()=>{clearTimeout(to);ok(false)};i.referrerPolicy='no-referrer';i.src=url});
-async function embedImage(url,max,q){try{const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),7000),r=await fetch(url,{signal:ctl.signal,referrerPolicy:'no-referrer'});clearTimeout(to);if(!r.ok)throw 0;const blob=await r.blob();if(!/^image\//.test(blob.type)||blob.size>12e6)throw 0;return addAsset(await fileToImage(blob,max,q))}catch(e){return null}}
+/* Always tries to turn the picture into base64 stored inside the board. Two routes: a normal download, then loading it as a CORS image and redrawing it on a canvas. */
+async function embedImageFetch(url,max,q){try{const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),9000),r=await fetch(url,{signal:ctl.signal,referrerPolicy:'no-referrer'});clearTimeout(to);if(!r.ok)throw 0;const blob=await r.blob();if(!/^image\//.test(blob.type)||blob.size>25e6)throw 0;return addAsset(await fileToImage(blob,max,q))}catch(e){return null}}
+function embedImageCanvas(url,max,q){return new Promise(ok=>{const i=new Image(),to=setTimeout(()=>{i.onload=i.onerror=null;ok(null)},9000);i.crossOrigin='anonymous';i.referrerPolicy='no-referrer';
+ i.onerror=()=>{clearTimeout(to);ok(null)};
+ i.onload=()=>{clearTimeout(to);try{const w=i.naturalWidth||i.width,h=i.naturalHeight||i.height;if(!w||!h)return ok(null);const s=Math.min(1,max/Math.max(w,h)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(w*s));c.height=Math.max(1,Math.round(h*s));const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(i,0,0,c.width,c.height);ok(addAsset(c.toDataURL('image/jpeg',q)))}catch(e){ok(null)}};
+ i.src=url})}
+async function embedImage(url,max,q){return (await embedImageFetch(url,max,q))||(await embedImageCanvas(url,max,q))}
 async function embedFile(url){try{const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),9000),r=await fetch(url,{signal:ctl.signal,referrerPolicy:'no-referrer'});clearTimeout(to);if(!r.ok)throw 0;const blob=await r.blob();if(blob.size>700*1024)throw 0;return addAsset(await readURL(blob))}catch(e){return null}}
 const isImgAtt=a=>/^image\//i.test(a.mimeType||'')||/\.(png|jpe?g|gif|webp|avif|bmp)(\?|#|$)/i.test(a.fileName||a.name||a.url||'');
 async function fetchTrelloImage(urls,max,q){for(const u of urls){if(!/^https:\/\//.test(u||''))continue;const a=await embedImage(u,max,q);if(a)return a;if(await imgLoads(u))return u}return null}
@@ -2897,8 +2911,14 @@ setTimeout(()=>{try{mpAutoShare()}catch(e){}},0);
    2. Add a new entry at the TOP of WHATS_NEW with that version, today's date, and a short, plain-language list of what you changed.
    3. Keep ALL older entries below it, never delete them: the popup lists them under "Older updates" so people can read past notes.
    The popup shows automatically once per user when APP_VERSION differs from the last version they have seen. */
-const APP_VERSION='58';
+const APP_VERSION='60';
 const WHATS_NEW=[
+ {v:'60',date:'2026-10-19',changes:[
+  'Links to Cardstock now show a preview when pasted in Discord and other apps: the Cardstock name with the banner image.',
+ ]},
+ {v:'59',date:'2026-10-19',changes:[
+  'Trello imports now convert every picture (board background, card covers and image attachments) to base64 and store it inside the board instead of keeping a link. If the image host blocks a normal download, a second method (redrawing it through the browser) is tried before giving up. Only a picture that cannot be copied by either method stays as a link.',
+ ]},
  {v:'58',date:'2026-10-19',changes:[
   'Much more storage: Cardstock now saves to your browser\'s large database (IndexedDB) instead of the roughly 5 MB localStorage. Your existing boards are copied over automatically the first time you open this version, and the old copy is kept as a backup for a couple of launches before it is removed. If IndexedDB is not available, it falls back to the old storage.',
   'The storage meter in the Profile menu shows how much storage is used and left, with an amber bar at 75% and a red bar at 90%, plus a warning toast when it gets close to full. There is also a Protect my data button that asks the browser not to clear your data automatically.',

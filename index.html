@@ -985,7 +985,7 @@ function renderHome(){const _ho=$('.home',main),hsT=(_ho&&!ui.enter)?_ho.scrollT
  main.innerHTML=`<div class="home"><div class="home-in"><div>
  ${starred.length?`<h2>${ic('star')} Starred boards</h2><div class="tiles">${starred.map(tileHTML).join('')}</div>`:''}
  ${recent.length?`<h2>${ic('clock')} Recently viewed </h2><div class="tiles">${recent.map(recentTile).join('')}</div>`:''}
- <h2>${ic('cols')} All boards</h2><div class="tiles" id="all-tiles">${boards.map(tileHTML).join('')}<div class="tile new" tabindex="0" role="button" data-act="pop-create">${ic('plus')}&nbsp;Create new board</div></div></div>
+ <h2>${ic('cols')} All boards</h2><div class="tiles" id="all-tiles">${boards.map(tileHTML).join('')}<div class="tile new" tabindex="0" role="button" data-act="pop-create">${ic('plus')}&nbsp;Create new board</div><div class="tile new" tabindex="0" role="button" data-act="import-board">${ic('upload')}&nbsp;Import board</div></div></div>
  <aside><h2>${ic('clock')} Coming up</h2><div class="panel" style="margin-bottom:24px">${up.length?up.slice(0,9).map(({b,l,c})=>`<div class="up" data-act="search-go" data-board="${b.id}" data-id="${c.id}"><span>${esc(c.title)}</span><small><span class="bd ${dueState(c)}" style="padding:0 5px">${ic('clock',12)} ${fmtDay(c.due)}</span> ${esc(b.title)}, ${esc(l.title)}</small></div>`).join(''):'<div class="empty">Nothing due in the next two weeks. Cards with due dates will show up here.</div>'}</div>${work.length?`<h2>${ic('activity')} W.I.P</h2><div class="panel">${work.map(({b,l,c})=>`<div class="up" data-act="search-go" data-board="${b.id}" data-id="${c.id}"><span>${esc(c.title)}</span><small>${esc(b.title)}, ${esc(l.title)}</small></div>`).join('')}</div>`:''}</aside></div></div>`;{const h=$('.home',main);if(h&&hsT)h.scrollTop=hsT}enterFx()}
 
 /* ===== board view ===== */
@@ -1082,7 +1082,7 @@ function drawerHTML(b){if(!ui.drawer)return'';const v=ui.drawer;let title='Menu'
   ${mi('drawer','tag','Labels','data-view="labels"')}${mi('drawer','users','Members','data-view="members"')}${mi('drawer','archive','Archived items','data-view="archive"')}${mi('drawer','activity','Activity','data-view="activity"')}
   <div class="sep"></div>${accS('d-view','Display',`<label class="tog"><input type="checkbox" data-act="toggle-label-names" ${b.showLabelNames?'checked':''}> Show label names on cards</label>
   <label class="tog"><input type="checkbox" data-act="toggle-compact" ${S.settings.compact?'checked':''}> Compact cards</label>`,true)}
-  ${accS('d-data','Export and copy',`${mi('export-board','download','Export board (JSON)')}${mi('export-csv','download','Export cards (CSV)')}${mi('dup-board','copy','Duplicate board')}`)}<div class="sep"></div>
+  ${accS('d-data','Export and copy',`${mi('export-board','download','Export board (JSON)')}${mi('export-csv','download','Export cards (CSV)')}${mi('dup-board','copy','Duplicate board')}`,true)}<div class="sep"></div>
   <button class="menu-item danger" data-act="del-board">${ic('trash')}<span>${b.guest?'Remove my copy':'Delete board'}</span></button>`}
  else if(v==='bg'&&!canEdit(b)){title='Background';body='<p class="hint">Only editors can change the background.</p>'}
  else if(v==='bg'){title='Background';const bg=b.bg,tile=(id,css,name)=>`<button class="bg-tile${bg.type==='preset'&&bg.value===id?' on':''}" data-act="set-bg" data-type="preset" data-value="${id}" style="background:${css}" title="${name}"></button>`;
@@ -1239,9 +1239,72 @@ async function fileToImage(file,max=1600,q=.82){const url=await readURL(file);
  return new Promise((ok,no)=>{const img=new Image();img.onload=()=>{const s=Math.min(1,max/Math.max(img.width,img.height)),w=Math.round(img.width*s),h=Math.round(img.height*s),c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,w,h);x.drawImage(img,0,0,w,h);ok(c.toDataURL('image/jpeg',q))};img.onerror=no;img.src=url})}
 function download(name,text,type='application/json'){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.append(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
 function assetsFor(obj){const j=JSON.stringify(obj),out={};for(const m of j.matchAll(/asset:([a-z0-9]+)/gi))if(S.assets[m[1]])out[m[1]]=S.assets[m[1]];return out}
-function importData(o){let n=0;const add=bd=>{bd=fixBoard(bd);if(!bd.id||S.boards[bd.id])bd.id=uid('b_');S.boards[bd.id]=bd;S.order.push(bd.id);n++};
+function importData(o){let n=0;const ids=[];const add=bd=>{bd=fixBoard(bd);if(!bd.id||S.boards[bd.id])bd.id=uid('b_');S.boards[bd.id]=bd;S.order.push(bd.id);ids.push(bd.id);n++};
  if(o&&o.boards){Object.assign(S.assets,o.assets||{});Object.values(o.boards).forEach(add)}else if(o&&o.board){Object.assign(S.assets,o.assets||{});add(o.board)}else throw new Error('bad');
- save();render();toast(`Imported ${n} board${n===1?'':'s'}`)}
+ save();render();toast(`Imported ${n} board${n===1?'':'s'}`);return ids}
+
+/* ===== Import board (Cardstock or Trello) ===== */
+const TRELLO_COL={green:'green',yellow:'yellow',orange:'orange',red:'red',purple:'purple',blue:'blue',sky:'sky',lime:'lime',pink:'pink',black:'ink',teal:'teal'};
+const trelloColor=c=>{if(!c)return'slate';c=String(c).replace(/_(dark|light)$/,'');return TRELLO_COL[c]||'slate'};
+const trelloTime=(iso,id)=>{const t=iso?Date.parse(iso):NaN;if(!isNaN(t))return t;if(id&&/^[0-9a-f]{8}/i.test(id))return parseInt(id.slice(0,8),16)*1000;return Date.now()};
+/* images: first try to download and store the picture inside Cardstock (works when the host allows it);
+   otherwise, if the browser can show it, link to it; otherwise skip it so nothing shows up broken */
+const imgLoads=(url,ms=7000)=>new Promise(ok=>{const i=new Image(),to=setTimeout(()=>{i.onload=i.onerror=null;ok(false)},ms);i.onload=()=>{clearTimeout(to);ok(true)};i.onerror=()=>{clearTimeout(to);ok(false)};i.referrerPolicy='no-referrer';i.src=url});
+async function embedImage(url,max,q){try{const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),7000),r=await fetch(url,{signal:ctl.signal,referrerPolicy:'no-referrer'});clearTimeout(to);if(!r.ok)throw 0;const blob=await r.blob();if(!/^image\//.test(blob.type)||blob.size>12e6)throw 0;return addAsset(await fileToImage(blob,max,q))}catch(e){return null}}
+async function fetchTrelloImage(urls,max,q){for(const u of urls){if(!/^https:\/\//.test(u||''))continue;const a=await embedImage(u,max,q);if(a)return a;if(await imgLoads(u))return u}return null}
+async function runPool(items,n,fn){let i=0;await Promise.all(Array.from({length:Math.min(n,items.length)},async()=>{while(i<items.length){const it=items[i++];try{await fn(it)}catch(e){}}}))}
+const scaledUrls=(arr,min,max)=>(Array.isArray(arr)?arr:[]).filter(x=>x&&x.url&&x.width).slice().sort((a,b)=>a.width-b.width);
+async function trelloBackground(t){
+ const pr=t.prefs||{};
+ if(pr.backgroundImage||(pr.backgroundImageScaled||[]).length){
+  const sc=scaledUrls(pr.backgroundImageScaled),big=sc.filter(x=>x.width>=1600).map(x=>x.url),rest=sc.slice().reverse().map(x=>x.url);
+  const u=await fetchTrelloImage([...big,pr.backgroundImage,...rest].filter(Boolean),1920,.8);
+  if(u)return{type:'image',value:u,dim:0,blur:0}}
+ const col=pr.backgroundColor||pr.backgroundTopColor||pr.backgroundBottomColor;
+ if(col&&/^#[0-9a-f]{3,8}$/i.test(col))return{type:'color',value:col,dim:0,blur:0};
+ return null}
+async function importTrello(t){
+ if(!t||!Array.isArray(t.lists)||!Array.isArray(t.cards))throw new Error('bad');
+ const b=makeBoard(String(t.name||'Trello board').slice(0,120));
+ const bg=await trelloBackground(t);if(bg)b.bg=bg;
+ /* labels */
+ const lab={};b.labels=[];(t.labels||[]).forEach(l=>{const col=trelloColor(l.color),nm=String(l.name||'').trim()||col.charAt(0).toUpperCase()+col.slice(1),nl={id:uid('l'),name:nm.slice(0,60),color:col};lab[l.id]=nl.id;b.labels.push(nl)});
+ /* people (you stay on the board as yourself; Trello members are added as extra members) */
+ const mem={};(t.members||[]).forEach((m,i)=>{const nm=String(m.fullName||m.username||'Member').slice(0,NAME_MAX),nm2={id:uid('m'),name:nm,color:MCOL[(i+1)%MCOL.length]};mem[m.id]=nm2.id;b.members.push(nm2)});
+ /* checklists, comments */
+ const cls={};(t.checklists||[]).forEach(c=>{cls[c.id]={id:uid('k'),title:String(c.name||'Checklist').slice(0,120),items:(c.checkItems||[]).slice().sort((a,b)=>(a.pos||0)-(b.pos||0)).map(i=>({id:uid('i'),text:String(i.name||'').slice(0,500),done:i.state==='complete'}))}});
+ const cmts={},created={};(t.actions||[]).forEach(a=>{const d=a.data||{},cid=d.card&&d.card.id;if(!cid)return;
+  if(a.type==='commentCard'&&d.text)(cmts[cid]=cmts[cid]||[]).push({id:uid('n'),text:String(d.text).slice(0,5000),t:trelloTime(a.date),by:String((a.memberCreator&&(a.memberCreator.fullName||a.memberCreator.username))||'Trello').slice(0,NAME_MAX)});
+  if(a.type==='createCard'&&a.date)created[cid]=Date.parse(a.date)});
+ /* lists + cards, in Trello order */
+ const cardsBy={},covJobs=[];t.cards.forEach(c=>{(cardsBy[c.idList]=cardsBy[c.idList]||[]).push(c)});
+ let nc=0;
+ b.lists=t.lists.slice().sort((a,b)=>(a.pos||0)-(b.pos||0)).map(l=>({id:uid('l'),title:String(l.name||'Untitled list').slice(0,120),archived:!!l.closed,collapsed:false,wip:0,color:null,
+  cards:(cardsBy[l.id]||[]).slice().sort((a,b)=>(a.pos||0)-(b.pos||0)).map(c=>{nc++;
+   const due=c.due?Date.parse(c.due):null,cvr=c.cover||{},cv=cvr.color?{type:'color',value:trelloColor(cvr.color),size:cvr.size==='full'?'full':'banner'}:null;
+   const card=mkCard(String(c.name||'Untitled card').slice(0,300),{desc:String(c.desc||'').slice(0,20000),labels:(c.idLabels||[]).map(i=>lab[i]).filter(Boolean),members:(c.idMembers||[]).map(i=>mem[i]).filter(Boolean),
+    due:isNaN(due)?null:due,done:!!c.dueComplete,cover:cv,archived:!!c.closed,
+    checklists:(c.idChecklists||[]).map(i=>cls[i]).filter(Boolean),comments:(cmts[c.id]||[]).sort((a,b)=>b.t-a.t),
+    attachments:(c.attachments||[]).filter(a=>a&&/^https?:\/\//.test(a.url||'')).map(a=>({id:uid('t'),name:String(a.name||a.fileName||a.url).slice(0,200),url:a.url,t:trelloTime(a.date)})),
+    created:created[c.id]||trelloTime(null,c.id)});
+   if(!cv&&(cvr.idAttachment||cvr.idUploadedBackground||(cvr.scaled||[]).length))covJobs.push({card,tc:c});
+   return card})}));
+ /* photo covers: use the card's cover picture when Trello gave us one we can load */
+ let covOK=0,covMiss=0;
+ await runPool(covJobs,4,async({card,tc})=>{const cvr=tc.cover||{},att=(tc.attachments||[]).find(a=>a.id===cvr.idAttachment),sc=scaledUrls(cvr.scaled);
+  const mid=sc.filter(x=>x.width>=500).map(x=>x.url),rest=sc.slice().reverse().map(x=>x.url);
+  const u=await fetchTrelloImage([...mid,...rest,att&&att.url,cvr.url].filter(Boolean),1000,.82);
+  if(u){card.cover={type:'image',value:u,size:cvr.size==='full'?'full':'banner'};covOK++}else covMiss++});
+ b.activity.unshift({id:uid('e'),t:Date.now(),text:'imported this board from Trello',card:null});
+ S.boards[b.id]=b;S.order.push(b.id);save();return{b,lists:b.lists.length,cards:nc,covOK,covMiss,bgImage:b.bg.type==='image'}}
+/* one importer for everything: Cardstock board/backup files and Trello exports (detected automatically) */
+async function importAnyFile(f){const o=JSON.parse(await f.text());
+ if(o&&(o.boards||o.board))return importData(o);
+ if(o&&Array.isArray(o.lists)&&Array.isArray(o.cards)){toast('Importing Trello board…');const r=await importTrello(o);render();
+  toast(`Imported “${r.b.title}” from Trello (${r.lists} list${r.lists===1?'':'s'}, ${r.cards} card${r.cards===1?'':'s'}${r.covOK?`, ${r.covOK} cover${r.covOK===1?'':'s'}`:''})`+(r.covMiss?`. ${r.covMiss} cover picture${r.covMiss===1?'':'s'} could not be loaded.`:''));return[r.b.id]}
+ throw new Error('bad')}
+function pickFiles(accept,cb){const i=document.createElement('input');i.type='file';i.accept=accept;i.multiple=true;i.onchange=()=>{if(i.files&&i.files.length)cb([...i.files])};i.click()}
+async function importBoards(files){const ids=[];for(const f of files){try{ids.push(...(await importAnyFile(f)||[]))}catch(e){console.warn(e);toast(`“${f.name}” is not a Cardstock or Trello board export`)}}if(ids.length===1)goBoard(ids[0])}
 function cloneCard(c){const n=JSON.parse(JSON.stringify(c));n.id=uid('c');n.created=Date.now();n.checklists.forEach(cl=>{cl.id=uid('k');cl.items.forEach(i=>i.id=uid('i'))});n.comments.forEach(x=>x.id=uid('n'));n.attachments.forEach(a=>a.id=uid('t'));return n}
 function adaptCard(card,from,to){card.working=[];card.labels=card.labels.map(id=>{const l=from.labels.find(x=>x.id===id);if(!l)return null;let t=to.labels.find(x=>x.name===l.name&&x.color===l.color);if(!t){t={id:uid('l'),name:l.name,color:l.color};to.labels.push(t)}return t.id}).filter(Boolean);
  card.members=card.members.map(id=>{const m=from.members.find(x=>x.id===id);if(!m)return null;let t=to.members.find(x=>x.name===m.name);if(!t){t={id:uid('m'),name:m.name,color:m.color};to.members.push(t)}return t.id}).filter(Boolean)}
@@ -1425,7 +1488,8 @@ A['me-save']=()=>{const v=($('#me-name').value||'').trim().slice(0,NAME_MAX);if(
 A['export-all']=()=>{download('cardstock-backup.json',JSON.stringify({format:'cardstock',boards:S.boards,order:S.order,assets:S.assets}))};
 A['export-board']=()=>{const b=B();download(`${b.title.replace(/[^\w-]+/g,'_')}.json`,JSON.stringify({format:'cardstock-board',board:b,assets:assetsFor(b)}))};
 A['export-csv']=()=>{const b=B(),rows=[['List','Card','Description','Labels','Members','Due','Complete','Checklist']];b.lists.forEach(l=>{if(l.archived)return;l.cards.forEach(c=>{if(c.archived)return;const s=checkStats(c);rows.push([l.title,c.title,c.desc,lblOf(b,c).map(x=>x.name||x.color).join('; '),memOf(b,c).map(m=>m.name).join('; '),c.due?new Date(c.due).toISOString():'',c.done?'yes':'no',s.t?s.d+'/'+s.t:''])})});download(`${b.title.replace(/[^\w-]+/g,'_')}.csv`,rows.map(r=>r.map(csvEsc).join(',')).join('\n'),'text/csv')};
-A.import=()=>pickFile('.json,application/json',async f=>{try{importData(JSON.parse(await f.text()));closePop()}catch(e){toast('That file is not a Cardstock export')}});
+A['import-board']=()=>pickFiles('.json,application/json',importBoards);
+A.import=()=>pickFiles('.json,application/json',async fs=>{closePop();await importBoards(fs)});
 A['whats-new']=()=>{closePop();showWhatsNew()};
 A['reset-all']=()=>{if(confirm('Delete ALL boards and settings in this browser?')){try{localStorage.removeItem(KEY)}catch(e){}window.onbeforeunload=null;S.boards={};location.reload()}};
 A['dup-board']=()=>{const b=B(),n=JSON.parse(JSON.stringify(b));n.id=uid('b_');n.title=b.title+' (copy)';n.created=Date.now();n.starred=false;n.activity=[];n.lists.forEach(l=>{l.id=uid('l');l.cards.forEach(c=>{c.id=uid('c')})});S.boards[n.id]=n;S.order.push(n.id);save();ui.drawer=null;goBoard(n.id);toast('Board duplicated')};
@@ -2728,8 +2792,13 @@ setTimeout(()=>{try{mpAutoShare()}catch(e){}},0);
    2. Add a new entry at the TOP of WHATS_NEW with that version, today's date, and a short, plain-language list of what you changed.
    3. Keep ALL older entries below it, never delete them: the popup lists them under "Older updates" so people can read past notes.
    The popup shows automatically once per user when APP_VERSION differs from the last version they have seen. */
-const APP_VERSION='56';
+const APP_VERSION='57';
 const WHATS_NEW=[
+ {v:'57',date:'2026-10-19',changes:[
+  'New \"Import board\" tile next to \"Create new board\" on the home screen. It reads Cardstock board or backup files and Trello JSON exports (it detects which one automatically), and you can pick several files at once. The Profile menu\'s Import JSON does the same.',
+  'Trello imports bring over lists, cards (in order), descriptions, labels, members, due dates and done status, checklists, comments, attachment links, archived lists and cards, and the board name. The Trello background picture and card cover pictures are fetched when your browser can load them; otherwise the board keeps its normal background and cards get no cover. In Trello use Menu > Print and export > Export as JSON.',
+  'Export board (JSON) is now open by default in the board menu, under Export and copy.',
+ ]},
  {v:'56',date:'2026-10-17',changes:[
   'Holding the V key no longer keeps switching between Board, Calendar and Table. One press switches once.',
   'The Auto (system) theme is now purplish instead of blue, in both its light and dark versions. The Light and Dark themes are unchanged.',

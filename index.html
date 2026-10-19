@@ -194,6 +194,11 @@ body.dragging,body.dragging *{cursor:grabbing!important;user-select:none!importa
 .md code{background:var(--s3);padding:1px 5px;border-radius:4px;font-size:90%}.md pre{background:var(--s3);padding:10px;border-radius:8px;overflow:auto}
 .md a{color:var(--accent)}.md h3,.md h4,.md h5{margin:8px 0 4px}
 .hint{color:var(--ink3);font-size:12px}
+.stor{margin:10px 0 4px;padding:9px 10px;border-radius:10px;background:var(--s2);border:1px solid var(--line)}
+.stor-h{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px}.stor-h b{font-weight:700}
+.stor-bar{height:6px;border-radius:99px;background:var(--s3);overflow:hidden}.stor-bar i{display:block;height:100%;border-radius:99px;background:var(--ok);transition:width .3s}
+.stor.warn .stor-bar i{background:var(--warn)}.stor.bad .stor-bar i{background:var(--danger)}
+.stor-m{font-size:12px;margin-top:4px;color:var(--ink2)}.stor.warn .stor-m{color:var(--warn)}.stor.bad{border-color:var(--danger)}.stor.bad .stor-m{color:var(--danger);font-weight:600}
 .cl-bar{display:flex;align-items:center;gap:10px;margin:2px 0 8px}.cl-bar span{width:34px;font-size:12px;color:var(--ink3)}
 .bar{flex:1;height:7px;border-radius:4px;background:var(--s3);overflow:hidden}.bar i{display:block;height:100%;background:var(--accent);transition:width .2s}.bar.full i{background:var(--ok)}
 .cl-item{display:flex;align-items:flex-start;gap:10px;padding:5px 4px;border-radius:8px}.cl-item:hover{background:var(--s2)}
@@ -712,6 +717,49 @@ body.viewonly .list-head{cursor:default}body.viewonly .list.collapsed .list-head
 </div>
 <div id="modal-root"></div><div id="wn-root"></div><div id="pop-root"></div><div id="dd-root"></div><div id="ctx-root"></div><div id="cursors"></div><div id="toast-root"></div><div id="presence-root"></div>
 <script>
+/* Storage preload: open IndexedDB (big storage), migrate the old localStorage data once, then start the app.
+   If IndexedDB is not available the app falls back to localStorage like before. */
+window.__CS_BOOT=(function(){
+ const open=()=>new Promise((ok,no)=>{if(!window.indexedDB)return no(new Error('no indexedDB'));let r;try{r=indexedDB.open('cardstock',1)}catch(e){return no(e)}
+  r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains('kv'))d.createObjectStore('kv');if(!d.objectStoreNames.contains('assets'))d.createObjectStore('assets')};
+  r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error);r.onblocked=()=>no(new Error('blocked'))});
+ const req=r=>new Promise((ok,no)=>{r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
+ const done=t=>new Promise((ok,no)=>{t.oncomplete=()=>ok();t.onerror=()=>no(t.error);t.onabort=()=>no(t.error||new Error('aborted'))});
+ const work=async()=>{
+  const out={idb:null,state:null,assets:{},assetKeys:[],migrated:false};let db=null,migrating=false;
+  try{
+   db=await Promise.race([open(),new Promise((_,no)=>setTimeout(()=>no(new Error('open timeout')),6000))]);
+   const t=db.transaction(['kv','assets'],'readonly'),kv=t.objectStore('kv'),as=t.objectStore('assets');
+   const [state,meta,keys,vals]=await Promise.all([req(kv.get('state')),req(kv.get('meta')),req(as.getAllKeys()),req(as.getAll())]);
+   if(state){
+    out.state=state;keys.forEach((k,i)=>{out.assets[k]=vals[i]});
+    if(meta&&meta.migratedAt&&!meta.cleaned){/* the old copy is kept as a backup for a couple of launches, then removed */
+     meta.boots=(meta.boots||0)+1;if(meta.boots>=3){try{localStorage.removeItem('cardstock.v1.premigration');localStorage.removeItem('cardstock.v1')}catch(e){}meta.cleaned=true}
+     try{db.transaction('kv','readwrite').objectStore('kv').put(meta,'meta')}catch(e){}}
+   }else{
+    let raw=null;try{raw=localStorage.getItem('cardstock.v1')}catch(e){}
+    if(raw){
+     const old=JSON.parse(raw),assets=old.assets||{};delete old.assets;migrating=true;
+     const wt=db.transaction(['kv','assets'],'readwrite');wt.objectStore('kv').put(old,'state');
+     Object.keys(assets).forEach(k=>wt.objectStore('assets').put(assets[k],k));
+     wt.objectStore('kv').put({migratedAt:Date.now(),boots:0,from:'localStorage'},'meta');
+     await done(wt);
+     const vt=db.transaction(['kv','assets'],'readonly'),n=await req(vt.objectStore('assets').count()),st=await req(vt.objectStore('kv').get('state'));
+     if(!st||n!==Object.keys(assets).length)throw new Error('migration check failed');
+     out.state=old;out.assets=assets;out.migrated=true;
+     try{localStorage.setItem('cardstock.v1.premigration',raw);localStorage.removeItem('cardstock.v1')}catch(e){/* no room for a second copy: the original stays where it is */}
+    }}
+   out.assetKeys=Object.keys(out.assets);out.idb=db;
+  }catch(e){
+   console.warn('IndexedDB not used, falling back to localStorage',e);
+   /* only a half-finished migration is wiped; existing IndexedDB data is never cleared here */
+   try{if(db&&migrating){const c=db.transaction(['kv','assets'],'readwrite');c.objectStore('kv').clear();c.objectStore('assets').clear()}}catch(x){}
+   return{idb:null,state:null,assets:{},assetKeys:[],migrated:false}}
+  return out};
+ return work();
+})();
+</script>
+<script type="text/plain" id="app-src">
 'use strict';
 /* ===== helpers ===== */
 const $=(s,r=document)=>r.querySelector(s);
@@ -852,7 +900,7 @@ lists:(TEMPLATES[tpl]||TEMPLATES.blank).lists.map(t=>({id:uid('l'),title:t,cards
 function fixBoard(b){b.title=b.title||'Untitled board';b.lists=b.lists||[];b.labels=b.labels||[];b.members=b.members||[];b.activity=b.activity||[];b.bg=b.bg||{...DEFAULT_BG};b.view=b.view||'board';b.members.forEach(m=>{if(m.me&&!m.pid)m.pid=PID});if(!b.access||typeof b.access!=='object')b.access={everyone:false,editors:[]};b.access.everyone=!!b.access.everyone;b.access.editors=Array.isArray(b.access.editors)?b.access.editors:[];b.emoji=(Array.isArray(b.emoji)?b.emoji:[]).filter(e=>e&&/^[a-z0-9_]{2,32}$/.test(e.name||'')&&/^asset:[a-z0-9]+$/i.test(e.img||'')).slice(0,50);if(!b.owner&&!b.guest)b.owner=PID;
 b.lists.forEach(l=>{l.id=l.id||uid('l');l.cards=l.cards||[];l.cards=l.cards.map(c=>({...mkCard(c.title||''),...c}))});return b}
 function seed(){const s={v:1,boards:{},order:[],recent:[],assets:{},settings:{theme:'auto',name:'You',compact:false}};return s}
-function load(){try{const raw=localStorage.getItem(KEY);if(raw){const s=JSON.parse(raw);s.boards=s.boards||{};s.order=(s.order||Object.keys(s.boards)).filter(i=>s.boards[i]);s.recent=s.recent||[];s.assets=s.assets||{};s.settings=Object.assign({theme:'auto',name:'You',compact:false},s.settings);Object.values(s.boards).forEach(fixBoard);
+function load(){try{const pre=window.__CS;let s=null;if(pre&&pre.state){s=pre.state;s.assets=pre.assets||{}}else{const raw=localStorage.getItem(KEY);if(raw)s=JSON.parse(raw)}if(s){s.boards=s.boards||{};s.order=(s.order||Object.keys(s.boards)).filter(i=>s.boards[i]);s.recent=s.recent||[];s.assets=s.assets||{};s.settings=Object.assign({theme:'auto',name:'You',compact:false},s.settings);Object.values(s.boards).forEach(fixBoard);
 const used=new Set([...JSON.stringify([s.boards,s.settings]).matchAll(/asset:([a-z0-9]+)/gi)].map(m=>m[1]));Object.keys(s.assets).forEach(k=>{if(!used.has(k))delete s.assets[k]});return s}}catch(e){console.warn(e)}return seed()}
 const NAME_MAX=18;
 const S=load();
@@ -864,8 +912,50 @@ if(!S.settings.color)S.settings.color=MCOL[Math.floor(Math.random()*MCOL.length)
 const res=src=>src&&src.startsWith('asset:')?(S.assets[src.slice(6)]||''):src;
 const addAsset=data=>{const id=uid('a');S.assets[id]=data;return 'asset:'+id};
 let saveT;function save(){clearTimeout(saveT);saveT=setTimeout(saveNow,150);if(!mp.applying)mpSchedule()}
-function saveNow(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){toast('Storage is full. Export a backup and remove large images.')}}
+/* ===== storage: IndexedDB (large) with localStorage as a fallback ===== */
+const IDBH=(window.__CS&&window.__CS.idb)||null;
+const known=new Set((window.__CS&&window.__CS.assetKeys)||[]);/* asset ids already stored in IndexedDB */
+const LS_LIMIT=5*1024*1024;/* localStorage fallback only: roughly 5 million characters, an estimate */
+let storeWarned=false,resetting=false,storeEst=null,storePersisted=null,lastEst=0;
+const assetChars=()=>{let n=0;for(const k in S.assets){const v=S.assets[k];n+=v&&v.length||0}return n};
+const fmtMB=n=>{const m=n/1048576;return m>=1024?(m/1024).toFixed(1)+' GB':(m>=10?m.toFixed(0):m.toFixed(1))+' MB'};
+function storageInfo(){const pics=assetChars();
+ if(IDBH){const used=storeEst?storeEst.usage:0,quota=storeEst?storeEst.quota:0,pct=quota?Math.min(100,used/quota*100):0;
+  return{mode:'idb',used,quota,pics,pct,left:Math.max(0,quota-used),known:!!(storeEst&&quota),level:pct>=90?'bad':pct>=75?'warn':'ok'}}
+ let used=0;try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);used+=k.length+(localStorage.getItem(k)||'').length}}catch(e){}
+ const pct=Math.min(100,used/LS_LIMIT*100);return{mode:'ls',used,quota:LS_LIMIT,pics,pct,left:Math.max(0,LS_LIMIT-used),known:true,level:pct>=90?'bad':pct>=75?'warn':'ok'}}
+function storageInner(){const i=storageInfo();let body,msg;
+ if(i.mode==='ls'){body=`About ${fmtMB(i.left)} left of roughly ${fmtMB(i.quota)}. Pictures and files use ${fmtMB(i.pics)}.`;
+  msg=i.level==='bad'?'Almost full. Saving will stop soon, so export a backup now and remove large images or old boards.':i.level==='warn'?'Getting full. Consider exporting a backup and removing large images or boards you no longer need.':'This browser is using the small fallback storage, so room is limited.'}
+ else if(i.known){body=`${fmtMB(i.used)} used, about ${fmtMB(i.left)} still available to Cardstock. Pictures and files use ${fmtMB(i.pics)}.`;
+  msg=i.level==='bad'?'Almost full. Export a backup and free up space on your device.':i.level==='warn'?'Getting full. Consider exporting a backup and freeing up space.':'Plenty of room left.'}
+ else{body=`Pictures and files use ${fmtMB(i.pics)}.`;msg='Your browser does not report how much space is left.'}
+ const per=storePersisted===true?'<div class="stor-m">Protected: your browser will not clear this data automatically.</div>':(storePersisted===false&&navigator.storage&&navigator.storage.persist?'<div class="stor-m">Your browser may clear this data if your device runs very low on space. <button class="btn sm" data-act="persist-storage" style="margin-top:6px">Protect my data</button></div>':'');
+ return `<div class="stor ${i.level}"><div class="stor-h"><span>Browser storage</span><b>${i.known?Math.round(i.pct)+'% used':fmtMB(i.used||i.pics)}</b></div>${i.known?`<div class="stor-bar"><i style="width:${Math.max(2,i.pct)}%"></i></div>`:''}<div class="hint" style="margin-top:4px">${body}</div><div class="stor-m">${msg}</div>${per}</div>`}
+function storageHTML(){setTimeout(refreshStorage,30);return `<div id="stor-wrap">${storageInner()}</div>`}
+function paintStorage(){const w=$('#stor-wrap');if(w)w.innerHTML=storageInner()}
+function refreshStorage(){lastEst=Date.now();const ns=navigator.storage;if(!ns)return paintStorage();
+ const jobs=[];if(ns.estimate)jobs.push(ns.estimate().then(e=>{storeEst={usage:e.usage||0,quota:e.quota||0}}).catch(()=>{}));
+ if(ns.persisted)jobs.push(ns.persisted().then(v=>{storePersisted=!!v}).catch(()=>{}));
+ Promise.all(jobs).then(()=>{paintStorage();const i=storageInfo();if(i.known&&i.pct>=90&&!storeWarned){storeWarned=true;toast(`Storage is ${Math.round(i.pct)}% full. Export a backup and free up space soon, or saving may stop.`)}})}
+const storeFull=e=>e&&(e.name==='QuotaExceededError'||/quota/i.test(e.message||''));
+const saveFailed=e=>{console.warn('save failed',e);toast(storeFull(e)||!IDBH?'Storage is full, so your latest changes are NOT being saved. Export a backup and remove large images.':'Could not save to this browser. Export a backup to be safe.')};
+function saveNow(){if(resetting)return;
+ if(!IDBH){try{localStorage.setItem(KEY,JSON.stringify(S));if(!storeWarned){const i=storageInfo();if(i.pct>=90){storeWarned=true;toast(`Storage is ${Math.round(i.pct)}% full. Export a backup and remove large images soon, or saving will stop.`)}}}catch(e){saveFailed(e)}return}
+ const {assets,...rest}=S,add=[],del=[];
+ for(const k in S.assets)if(!known.has(k))add.push(k);
+ known.forEach(k=>{if(!(k in S.assets))del.push(k)});
+ try{const t=IDBH.transaction(['kv','assets'],'readwrite'),kv=t.objectStore('kv'),as=t.objectStore('assets');
+  kv.put(rest,'state');add.forEach(k=>as.put(S.assets[k],k));del.forEach(k=>as.delete(k));
+  add.forEach(k=>known.add(k));del.forEach(k=>known.delete(k));
+  t.oncomplete=()=>{if(Date.now()-lastEst>30000)refreshStorage()};
+  t.onabort=()=>{add.forEach(k=>known.delete(k));del.forEach(k=>known.add(k));saveFailed(t.error)}
+ }catch(e){saveFailed(e)}}
+A_persist_init();
+function A_persist_init(){/* ask the browser once not to clear our data when the device runs low on space */
+ try{const ns=navigator.storage;if(!ns||!ns.persist||!ns.persisted)return;ns.persisted().then(v=>{storePersisted=!!v;if(v||localStorage.getItem('cardstock.persistAsked'))return;try{localStorage.setItem('cardstock.persistAsked','1')}catch(e){}return ns.persist().then(g=>{storePersisted=!!g})}).catch(()=>{})}catch(e){}}
 window.addEventListener('beforeunload',saveNow);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')saveNow()});
 
 /* ===== ui state ===== */
 const ui={boardId:null,filter:{q:'',labels:[],members:[],due:''},composer:null,composerDraft:'',editList:null,editBoardTitle:false,addingList:false,drawer:null,cardId:null,descEdit:false,descDraft:'',commentDraft:'',addItem:null,editItem:null,editCl:null,calMonth:startOfMonth(new Date()),tbl:{k:'due',d:1},archTab:'cards',hoverCard:null,hoverList:null,focus:null,noClick:false};
@@ -1178,7 +1268,7 @@ function popContent(){const b=B(),k=pop.kind,ctx=pop.ctx;
   <div class="fl">Template</div><div class="tpl">${Object.entries(TEMPLATES).map(([id,t])=>`<button class="${nb.tpl===id?'on':''}" data-act="nb-tpl" data-id="${id}"><b>${t.name}</b><small>${t.lists.length?t.lists.join(', '):'No lists'}</small></button>`).join('')}</div>
   <button class="btn primary block" style="margin-top:12px;justify-content:center" data-act="nb-create">Create board</button>`}}
  case 'me':return{title:'Profile',w:300,body:`<div class="row" style="gap:14px;margin-bottom:6px">${avatar(meUser(),'big')}<div class="row" style="flex-wrap:wrap"><button class="btn sm" data-act="me-pic">${ic('upload',14)} Upload photo</button>${S.settings.avatar?`<button class="btn sm ghost" data-act="me-pic-rm">Remove</button>`:''}</div></div><label class="fl">Your name<input class="f" id="me-name" maxlength="18" value="${esc(pop.nameDraft!=null?pop.nameDraft:S.settings.name)}"></label><button class="btn block" style="margin:6px 0 10px" data-act="me-save">Save name</button><div class="sep"></div>
-  <button class="menu-item" data-act="hide-cursor">${ic('user')}<span>Hide my mouse from others: ${S.settings.hideCursor?'On':'Off'}</span></button><div class="me-io"><button class="btn" data-act="export-all">${ic('download',14)}<span>Export everything (JSON)</span></button><button class="btn" data-act="import">${ic('upload',14)}<span>Import JSON</span></button></div><button class="menu-item danger" data-act="reset-all">${ic('trash')}<span>Delete all data</span></button><p class="hint" style="margin-top:8px">Data is stored in this browser only. Export a backup now and then.</p>`};
+  <button class="menu-item" data-act="hide-cursor">${ic('user')}<span>Hide my mouse from others: ${S.settings.hideCursor?'On':'Off'}</span></button><div class="me-io"><button class="btn" data-act="export-all">${ic('download',14)}<span>Export everything (JSON)</span></button><button class="btn" data-act="import">${ic('upload',14)}<span>Import JSON</span></button></div>${storageHTML()}<button class="menu-item danger" data-act="reset-all">${ic('trash')}<span>Delete all data</span></button><p class="hint" style="margin-top:8px">Data is stored in this browser only. Export a backup now and then.</p>`};
  case 'help':return{center:true,title:'Keyboard shortcuts',w:400,body:`<div class="kb"><span class="kbh">Anywhere</span><kbd>/</kbd><span>Search</span><kbd>?</kbd><span>This help</span><kbd>B</kbd><span>Back to all boards</span><kbd>Esc</kbd><span>Close whatever is open</span><kbd>Right-click</kbd><span>Menu for cards, lists, boards, members</span>
   <span class="kbh">On a board</span><kbd>N</kbd><span>Add a card to the list under the pointer</span><kbd>F</kbd><span>Filter</span><kbd>Q</kbd><span>Show only my cards</span><kbd>V</kbd><span>Cycle Board, Calendar, Table</span><kbd>Ctrl+Z</kbd><span>Undo</span><kbd>Ctrl+Shift+Z</kbd><span>Redo</span>
   <span class="kbh">Pointer over a card</span><kbd>E</kbd><span>Open card</span><kbd>L</kbd><span>Labels</span><kbd>M</kbd><span>Members</span><kbd>D</kbd><span>Due date</span><kbd>Space</kbd><span>Add or remove me</span><kbd>X</kbd><span>Mark complete</span><kbd>W</kbd><span>Toggle W.I.P</span><kbd>1-9</kbd><span>Toggle label by position</span><kbd>C</kbd><span>Archive</span></div><div class="sep"></div><button class="menu-item" data-act="whats-new">${ic('star')}<span>What\'s new (version ${APP_VERSION})</span></button>`};
@@ -1251,6 +1341,8 @@ const trelloTime=(iso,id)=>{const t=iso?Date.parse(iso):NaN;if(!isNaN(t))return 
    otherwise, if the browser can show it, link to it; otherwise skip it so nothing shows up broken */
 const imgLoads=(url,ms=7000)=>new Promise(ok=>{const i=new Image(),to=setTimeout(()=>{i.onload=i.onerror=null;ok(false)},ms);i.onload=()=>{clearTimeout(to);ok(true)};i.onerror=()=>{clearTimeout(to);ok(false)};i.referrerPolicy='no-referrer';i.src=url});
 async function embedImage(url,max,q){try{const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),7000),r=await fetch(url,{signal:ctl.signal,referrerPolicy:'no-referrer'});clearTimeout(to);if(!r.ok)throw 0;const blob=await r.blob();if(!/^image\//.test(blob.type)||blob.size>12e6)throw 0;return addAsset(await fileToImage(blob,max,q))}catch(e){return null}}
+async function embedFile(url){try{const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),9000),r=await fetch(url,{signal:ctl.signal,referrerPolicy:'no-referrer'});clearTimeout(to);if(!r.ok)throw 0;const blob=await r.blob();if(blob.size>700*1024)throw 0;return addAsset(await readURL(blob))}catch(e){return null}}
+const isImgAtt=a=>/^image\//i.test(a.mimeType||'')||/\.(png|jpe?g|gif|webp|avif|bmp)(\?|#|$)/i.test(a.fileName||a.name||a.url||'');
 async function fetchTrelloImage(urls,max,q){for(const u of urls){if(!/^https:\/\//.test(u||''))continue;const a=await embedImage(u,max,q);if(a)return a;if(await imgLoads(u))return u}return null}
 async function runPool(items,n,fn){let i=0;await Promise.all(Array.from({length:Math.min(n,items.length)},async()=>{while(i<items.length){const it=items[i++];try{await fn(it)}catch(e){}}}))}
 const scaledUrls=(arr,min,max)=>(Array.isArray(arr)?arr:[]).filter(x=>x&&x.url&&x.width).slice().sort((a,b)=>a.width-b.width);
@@ -1277,7 +1369,7 @@ async function importTrello(t){
   if(a.type==='commentCard'&&d.text)(cmts[cid]=cmts[cid]||[]).push({id:uid('n'),text:String(d.text).slice(0,5000),t:trelloTime(a.date),by:String((a.memberCreator&&(a.memberCreator.fullName||a.memberCreator.username))||'Trello').slice(0,NAME_MAX)});
   if(a.type==='createCard'&&a.date)created[cid]=Date.parse(a.date)});
  /* lists + cards, in Trello order */
- const cardsBy={},covJobs=[];t.cards.forEach(c=>{(cardsBy[c.idList]=cardsBy[c.idList]||[]).push(c)});
+ const cardsBy={},covJobs=[],attJobs=[],attMap={};t.cards.forEach(c=>{(cardsBy[c.idList]=cardsBy[c.idList]||[]).push(c)});
  let nc=0;
  b.lists=t.lists.slice().sort((a,b)=>(a.pos||0)-(b.pos||0)).map(l=>({id:uid('l'),title:String(l.name||'Untitled list').slice(0,120),archived:!!l.closed,collapsed:false,wip:0,color:null,
   cards:(cardsBy[l.id]||[]).slice().sort((a,b)=>(a.pos||0)-(b.pos||0)).map(c=>{nc++;
@@ -1285,23 +1377,33 @@ async function importTrello(t){
    const card=mkCard(String(c.name||'Untitled card').slice(0,300),{desc:String(c.desc||'').slice(0,20000),labels:(c.idLabels||[]).map(i=>lab[i]).filter(Boolean),members:(c.idMembers||[]).map(i=>mem[i]).filter(Boolean),
     due:isNaN(due)?null:due,done:!!c.dueComplete,cover:cv,archived:!!c.closed,
     checklists:(c.idChecklists||[]).map(i=>cls[i]).filter(Boolean),comments:(cmts[c.id]||[]).sort((a,b)=>b.t-a.t),
-    attachments:(c.attachments||[]).filter(a=>a&&/^https?:\/\//.test(a.url||'')).map(a=>({id:uid('t'),name:String(a.name||a.fileName||a.url).slice(0,200),url:a.url,t:trelloTime(a.date)})),
     created:created[c.id]||trelloTime(null,c.id)});
+   card.attachments=(c.attachments||[]).filter(a=>a&&/^https?:\/\//.test(a.url||'')).map(a=>{const o={id:uid('t'),name:String(a.name||a.fileName||a.url).slice(0,200),url:a.url,t:trelloTime(a.date)};attJobs.push({o,a});attMap[a.id]=o;return o});
    if(!cv&&(cvr.idAttachment||cvr.idUploadedBackground||(cvr.scaled||[]).length))covJobs.push({card,tc:c});
    return card})}));
+ /* pictures and small files attached to cards: download them into the board so they do not depend on Trello */
+ let attMiss=0;
+ await runPool(attJobs,4,async({o,a})=>{if(!/^https:\/\//.test(a.url))return;
+  if(isImgAtt(a)){const u=await embedImage(a.url,1600,.82);if(u)o.url=u;else attMiss++}
+  else if(a.isUpload&&a.bytes&&a.bytes<=700*1024){const u=await embedFile(a.url);if(u)o.url=u;else attMiss++}});
  /* photo covers: use the card's cover picture when Trello gave us one we can load */
  let covOK=0,covMiss=0;
  await runPool(covJobs,4,async({card,tc})=>{const cvr=tc.cover||{},att=(tc.attachments||[]).find(a=>a.id===cvr.idAttachment),sc=scaledUrls(cvr.scaled);
   const mid=sc.filter(x=>x.width>=500).map(x=>x.url),rest=sc.slice().reverse().map(x=>x.url);
-  const u=await fetchTrelloImage([...mid,...rest,att&&att.url,cvr.url].filter(Boolean),1000,.82);
+  const ao=attMap[cvr.idAttachment];/* already downloaded above: reuse that copy */
+  const u=(ao&&/^asset:/.test(ao.url))?ao.url:await fetchTrelloImage([...mid,...rest,att&&att.url,cvr.url].filter(Boolean),1000,.82);
   if(u){card.cover={type:'image',value:u,size:cvr.size==='full'?'full':'banner'};covOK++}else covMiss++});
  b.activity.unshift({id:uid('e'),t:Date.now(),text:'imported this board from Trello',card:null});
- S.boards[b.id]=b;S.order.push(b.id);save();return{b,lists:b.lists.length,cards:nc,covOK,covMiss,bgImage:b.bg.type==='image'}}
+ /* how many pictures ended up stored in the board vs only linked */
+ let saved=0,linked=0;const cnt=v=>{if(/^asset:/.test(v))saved++;else if(v)linked++};
+ if(b.bg.type==='image')cnt(b.bg.value);
+ b.lists.forEach(l=>l.cards.forEach(c=>{if(c.cover&&c.cover.type==='image')cnt(c.cover.value);c.attachments.forEach(a=>{if(/^asset:/.test(a.url))saved++})}));
+ S.boards[b.id]=b;S.order.push(b.id);save();return{b,lists:b.lists.length,cards:nc,covOK,covMiss,saved,linked,attMiss,bgImage:b.bg.type==='image'}}
 /* one importer for everything: Cardstock board/backup files and Trello exports (detected automatically) */
 async function importAnyFile(f){const o=JSON.parse(await f.text());
  if(o&&(o.boards||o.board))return importData(o);
- if(o&&Array.isArray(o.lists)&&Array.isArray(o.cards)){toast('Importing Trello board…');const r=await importTrello(o);render();
-  toast(`Imported “${r.b.title}” from Trello (${r.lists} list${r.lists===1?'':'s'}, ${r.cards} card${r.cards===1?'':'s'}${r.covOK?`, ${r.covOK} cover${r.covOK===1?'':'s'}`:''})`+(r.covMiss?`. ${r.covMiss} cover picture${r.covMiss===1?'':'s'} could not be loaded.`:''));return[r.b.id]}
+ if(o&&Array.isArray(o.lists)&&Array.isArray(o.cards)){toast('Importing Trello board and downloading its pictures…');const r=await importTrello(o);render();
+  toast(`Imported “${r.b.title}” from Trello (${r.lists} list${r.lists===1?'':'s'}, ${r.cards} card${r.cards===1?'':'s'}).`+(r.saved?` ${r.saved} picture${r.saved===1?'':'s'}/file${r.saved===1?'':'s'} saved into the board.`:'')+((r.linked||r.attMiss)?` ${r.linked+r.attMiss} could not be copied (the image host blocks it) and ${r.linked?'are linked or ':''}stay as links.`:''));return[r.b.id]}
  throw new Error('bad')}
 function pickFiles(accept,cb){const i=document.createElement('input');i.type='file';i.accept=accept;i.multiple=true;i.onchange=()=>{if(i.files&&i.files.length)cb([...i.files])};i.click()}
 async function importBoards(files){const ids=[];for(const f of files){try{ids.push(...(await importAnyFile(f)||[]))}catch(e){console.warn(e);toast(`“${f.name}” is not a Cardstock or Trello board export`)}}if(ids.length===1)goBoard(ids[0])}
@@ -1491,7 +1593,10 @@ A['export-csv']=()=>{const b=B(),rows=[['List','Card','Description','Labels','Me
 A['import-board']=()=>pickFiles('.json,application/json',importBoards);
 A.import=()=>pickFiles('.json,application/json',async fs=>{closePop();await importBoards(fs)});
 A['whats-new']=()=>{closePop();showWhatsNew()};
-A['reset-all']=()=>{if(confirm('Delete ALL boards and settings in this browser?')){try{localStorage.removeItem(KEY)}catch(e){}window.onbeforeunload=null;S.boards={};location.reload()}};
+A['reset-all']=()=>{if(confirm('Delete ALL boards and settings in this browser?')){resetting=true;window.onbeforeunload=null;try{localStorage.removeItem(KEY);localStorage.removeItem('cardstock.v1.premigration')}catch(e){}
+ const fin=()=>{S.boards={};location.reload()};
+ if(IDBH){try{const t=IDBH.transaction(['kv','assets'],'readwrite');t.objectStore('kv').clear();t.objectStore('assets').clear();t.oncomplete=fin;t.onerror=t.onabort=fin}catch(e){fin()}}else fin()}};
+A['persist-storage']=()=>{const ns=navigator.storage;if(!ns||!ns.persist)return;ns.persist().then(g=>{storePersisted=!!g;paintStorage();toast(g?'Your browser will keep this data safe':'Your browser did not allow that. Exporting backups is still a good idea.')}).catch(()=>{})};
 A['dup-board']=()=>{const b=B(),n=JSON.parse(JSON.stringify(b));n.id=uid('b_');n.title=b.title+' (copy)';n.created=Date.now();n.starred=false;n.activity=[];n.lists.forEach(l=>{l.id=uid('l');l.cards.forEach(c=>{c.id=uid('c')})});S.boards[n.id]=n;S.order.push(n.id);save();ui.drawer=null;goBoard(n.id);toast('Board duplicated')};
 A['del-board']=()=>{const b=B();if(!confirm(`Delete “${b.title}” and everything in it?`))return;delete S.boards[b.id];S.order=S.order.filter(i=>i!==b.id);S.recent=S.recent.filter(i=>i!==b.id);save();goBoard(null)};
 /* background */
@@ -2792,11 +2897,16 @@ setTimeout(()=>{try{mpAutoShare()}catch(e){}},0);
    2. Add a new entry at the TOP of WHATS_NEW with that version, today's date, and a short, plain-language list of what you changed.
    3. Keep ALL older entries below it, never delete them: the popup lists them under "Older updates" so people can read past notes.
    The popup shows automatically once per user when APP_VERSION differs from the last version they have seen. */
-const APP_VERSION='57';
+const APP_VERSION='58';
 const WHATS_NEW=[
+ {v:'58',date:'2026-10-19',changes:[
+  'Much more storage: Cardstock now saves to your browser\'s large database (IndexedDB) instead of the roughly 5 MB localStorage. Your existing boards are copied over automatically the first time you open this version, and the old copy is kept as a backup for a couple of launches before it is removed. If IndexedDB is not available, it falls back to the old storage.',
+  'The storage meter in the Profile menu shows how much storage is used and left, with an amber bar at 75% and a red bar at 90%, plus a warning toast when it gets close to full. There is also a Protect my data button that asks the browser not to clear your data automatically.',
+  'Trello imports now download the board background, card cover pictures, image attachments and small attached files into the board, so they keep working without Trello. If an image host blocks copying, the picture stays a link instead.',
+ ]},
  {v:'57',date:'2026-10-19',changes:[
   'New \"Import board\" tile next to \"Create new board\" on the home screen. It reads Cardstock board or backup files and Trello JSON exports (it detects which one automatically), and you can pick several files at once. The Profile menu\'s Import JSON does the same.',
-  'Trello imports bring over lists, cards (in order), descriptions, labels, members, due dates and done status, checklists, comments, attachment links, archived lists and cards, and the board name. The Trello background picture and card cover pictures are fetched when your browser can load them; otherwise the board keeps its normal background and cards get no cover. In Trello use Menu > Print and export > Export as JSON.',
+  'Trello imports bring over lists, cards (in order), descriptions, labels, members, due dates and done status, checklists, comments, archived lists and cards, and the board name. The Trello background, card covers and attachments are downloaded into the board when the image host allows it. In Trello use Menu > Print and export > Export as JSON.',
   'Export board (JSON) is now open by default in the board menu, under Export and copy.',
  ]},
  {v:'56',date:'2026-10-17',changes:[
@@ -2909,6 +3019,10 @@ try{if(localStorage.getItem('cardstock.whatsnew')!==APP_VERSION)setTimeout(showW
 
 emojify(document.body);
 new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes){if(n.isConnected&&(n.nodeType===1||n.nodeType===3))emojify(n)}}).observe(document.body,{childList:true,subtree:true});
+</script>
+<script>
+(function(){const run=r=>{window.__CS=r||null;const s=document.createElement('script');s.textContent=document.getElementById('app-src').textContent;document.body.appendChild(s)};
+ window.__CS_BOOT.then(run,()=>run(null))})();
 </script>
 </body>
 </html>

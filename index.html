@@ -7,10 +7,13 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Cardstock">
 <meta property="og:title" content="Cardstock">
+<meta name="description" content="A free, local task managing tool similar to Trello. Organize work with boards, lists and cards, labels, checklists and due dates, and switch between Board, Calendar and Table views. Import Trello boards, share live with chat and voice, and pick from custom themes. Your data stays on your device.">
+<meta property="og:description" content="A free, local task managing tool similar to Trello. Organize work with boards, lists and cards, labels, checklists and due dates, and switch between Board, Calendar and Table views. Import Trello boards, share live with chat and voice, and pick from custom themes. Your data stays on your device.">
 <meta property="og:url" content="https://cardstockdev.github.io/cardstock/">
 <meta property="og:image" content="https://raw.githubusercontent.com/cardstockdev/cardstock/refs/heads/main/Cardstock%20Banner.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Cardstock">
+<meta name="twitter:description" content="A free, local task managing tool similar to Trello. Organize work with boards, lists and cards, labels, checklists and due dates, and switch between Board, Calendar and Table views. Import Trello boards, share live with chat and voice, and pick from custom themes. Your data stays on your device.">
 <meta name="twitter:image" content="https://raw.githubusercontent.com/cardstockdev/cardstock/refs/heads/main/Cardstock%20Banner.png">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%232f6bff'/%3E%3Crect x='4.5' y='5' width='4' height='14' rx='1.3' fill='white'/%3E%3Crect x='10' y='5' width='4' height='8.5' rx='1.3' fill='white' opacity='.85'/%3E%3Crect x='15.5' y='5' width='4' height='11' rx='1.3' fill='white' opacity='.7'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2911,8 +2914,11 @@ setTimeout(()=>{try{mpAutoShare()}catch(e){}},0);
    2. Add a new entry at the TOP of WHATS_NEW with that version, today's date, and a short, plain-language list of what you changed.
    3. Keep ALL older entries below it, never delete them: the popup lists them under "Older updates" so people can read past notes.
    The popup shows automatically once per user when APP_VERSION differs from the last version they have seen. */
-const APP_VERSION='60';
+const APP_VERSION='61';
 const WHATS_NEW=[
+ {v:'61',date:'2026-10-19',changes:[
+  'Link previews now include a description of Cardstock and its main features: boards, lists and cards, labels, checklists, due dates, Board, Calendar and Table views, Trello import, live sharing with chat and voice, and themes.',
+ ]},
  {v:'60',date:'2026-10-19',changes:[
   'Links to Cardstock now show a preview when pasted in Discord and other apps: the Cardstock name with the banner image.',
  ]},
